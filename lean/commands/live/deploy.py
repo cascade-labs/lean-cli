@@ -29,6 +29,20 @@ from lean.components.util.live_utils import get_last_portfolio_cash_holdings, co
 from lean.components.util.json_modules_handler import build_and_configure_modules, \
     non_interactive_config_build_for_name, interactive_config_build, config_build_for_name
 
+
+# Simplified aliases for Cascade data providers
+# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
+_CASCADE_PROVIDER_ALIASES = {
+    "thetadata": "CascadeThetaData",
+    "kalshi": "CascadeKalshiData",
+    "hyper": "Hyperliquid",
+}
+
+# Full list of cascade providers (both aliases and full names for backward compatibility)
+# Hyperliquid is already in cli_data_downloaders via cascade-modules.json, so "hyper" is just an alias
+_CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "CascadeThetaData", "CascadeKalshiData"]
+
+
 _environment_skeleton = {
     "live-mode": True,
     "setup-handler": "QuantConnect.Lean.Engine.Setup.BrokerageSetupHandler",
@@ -71,7 +85,7 @@ def _get_history_provider_name(data_provider_live_names: [str]) -> [str]:
               multiple=True,
               help="The live data provider to use")
 @option("--data-provider-historical",
-              type=Choice([dp.get_name() for dp in cli_data_downloaders if dp.get_id() != "TerminalLinkBrokerage"], case_sensitive=False),
+              type=Choice([dp.get_name() for dp in cli_data_downloaders if dp.get_id() != "TerminalLinkBrokerage"] + _CASCADE_PROVIDERS, case_sensitive=False),
               help="Update the Lean configuration file to retrieve data from the given historical provider")
 @options_from_json(get_configs_for_options("live-cli"))
 @option("--release",
@@ -232,9 +246,32 @@ def deploy(project: Path,
     data_provider_live = [provider.get_name() for provider in data_provider_live_instances]
     if data_provider_historical is None:
         data_provider_historical = "Local"
-    data_downloader_instances = non_interactive_config_build_for_name(lean_config, data_provider_historical,
-                                                                      cli_data_downloaders, kwargs, logger,
-                                                                      environment_name, no_browser=no_browser)
+
+    # Normalize cascade provider aliases to their full names
+    data_provider_historical_lower = data_provider_historical.lower()
+    if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
+        data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
+
+    # Handle cascade providers specially (built into custom image)
+    data_downloader_instances = None
+    if data_provider_historical == "CascadeThetaData":
+        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
+        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader"
+        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider"
+        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
+        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+        # Use ThetaDataFactorFileProvider to fetch corporate actions (splits/dividends) from ThetaData API
+        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider"
+    elif data_provider_historical == "CascadeKalshiData":
+        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
+        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader"
+        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider"
+        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
+        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+    else:
+        data_downloader_instances = non_interactive_config_build_for_name(lean_config, data_provider_historical,
+                                                                          cli_data_downloaders, kwargs, logger,
+                                                                          environment_name, no_browser=no_browser)
     if history_providers is None or len(history_providers) == 0:
         history_providers = _get_history_provider_name(data_provider_live)
     for history_provider in history_providers:
@@ -249,8 +286,10 @@ def deploy(project: Path,
 
     organization_id = container.organization_manager.try_get_working_organization_id()
     paths_to_mount = {}
-    for module in (data_provider_live_instances + [data_downloader_instances, brokerage_instance]
-                   + history_providers_instances):
+    modules_to_check = data_provider_live_instances + [brokerage_instance] + history_providers_instances
+    if data_downloader_instances is not None:
+        modules_to_check.append(data_downloader_instances)
+    for module in modules_to_check:
         module.ensure_module_installed(organization_id, container_module_version)
         paths_to_mount.update(module.get_paths_to_mount())
 

@@ -20,6 +20,15 @@ from lean.click import LeanCommand, backtest_parameter_option
 from lean.container import container
 
 
+# Simplified aliases for Cascade data providers
+# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
+_CASCADE_PROVIDER_ALIASES = {
+    "thetadata": "CascadeThetaData",
+    "kalshi": "CascadeKalshiData",
+    "hyper": "Hyperliquid",
+}
+
+
 def _list_cascade_backtests(project: Optional[str], status: Optional[str]) -> None:
     """List backtests from Cascade data server.
 
@@ -144,6 +153,12 @@ def _run_cascade_backtest(
     project_id = data_server_project.id
     logger.info(f"Found project '{data_server_project.name}' (id: {project_id})")
 
+    # Normalize cascade provider aliases to their full names
+    if data_provider_historical is not None:
+        data_provider_historical_lower = data_provider_historical.lower()
+        if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
+            data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
+
     # Create backtest job
     logger.info(f"Creating backtest '{name}'...")
     backtest = data_server_client.create_backtest(
@@ -235,7 +250,7 @@ def _run_cascade_backtest(
 @option("--data-provider-historical",
               type=str,
               default=None,
-              help="Historical data provider (e.g., Local, CascadeThetaData, ThetaData). Defaults to CascadeThetaData for cloud backtests.")
+              help="Historical data provider (e.g., Local, thetadata, kalshi, hyper). Defaults to thetadata for cloud backtests.")
 @backtest_parameter_option
 def backtest(
     project: Optional[str],

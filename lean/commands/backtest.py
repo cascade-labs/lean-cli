@@ -27,6 +27,19 @@ from lean.components.util.json_modules_handler import build_and_configure_module
 from lean.models.click_options import options_from_json, get_configs_for_options
 
 
+# Simplified aliases for Cascade data providers
+# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
+_CASCADE_PROVIDER_ALIASES = {
+    "thetadata": "CascadeThetaData",
+    "kalshi": "CascadeKalshiData",
+    "hyper": "Hyperliquid",
+}
+
+# Full list of cascade providers (both aliases and full names for backward compatibility)
+# Hyperliquid is already in cli_data_downloaders via cascade-modules.json, so "hyper" is just an alias
+_CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "CascadeThetaData", "CascadeKalshiData"]
+
+
 def _list_local_backtests(project: Optional[Path]) -> None:
     """List locally saved backtests.
 
@@ -344,7 +357,7 @@ def _migrate_csharp_csproj(project_dir: Path) -> None:
               type=Choice(["pycharm", "ptvsd", "debugpy", "vsdbg", "rider", "local-platform"], case_sensitive=False),
               help="Enable a certain debugging method (see --help for more information)")
 @option("--data-provider-historical",
-              type=Choice([dp.get_name() for dp in cli_data_downloaders] + ["CascadeThetaData", "CascadeKalshiData"], case_sensitive=False),
+              type=Choice([dp.get_name() for dp in cli_data_downloaders] + _CASCADE_PROVIDERS, case_sensitive=False),
               default="Local",
               help="Update the Lean configuration file to retrieve data from the given historical provider")
 @options_from_json(get_configs_for_options("backtest"))
@@ -501,14 +514,31 @@ def backtest(project: Optional[Path],
     if download_data:
         data_provider_historical = "QuantConnect"
 
-    # Inject ThetaData configuration when that provider is explicitly selected
-    thetadata_url = cli_config_manager.thetadata_url.get_value()
-    thetadata_api_key = cli_config_manager.thetadata_api_key.get_value()
+    # Normalize cascade provider aliases to their full names
+    data_provider_historical_lower = data_provider_historical.lower()
+    if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
+        data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
 
-    if data_provider_historical in ["ThetaData", "CascadeThetaData"] and thetadata_url:
-        lean_config["thetadata-rest-url"] = thetadata_url
-        lean_config["thetadata-ws-url"] = ""  # REST only, no WebSocket
-        lean_config["thetadata-subscription-plan"] = "Pro"  # Default to Pro
+    # Inject ThetaData configuration when that provider is explicitly selected
+    if data_provider_historical == "CascadeThetaData":
+        # Default cascadelabs ThetaData endpoints
+        default_rest_url = "https://thetadata.cascadelabs.io"
+        default_ws_url = "wss://thetadata.cascadelabs.io/v1/events"
+
+        thetadata_url = cli_config_manager.thetadata_url.get_value() or default_rest_url
+        thetadata_api_key = cli_config_manager.thetadata_api_key.get_value()
+
+        # Note: Lean uses "thetadata-url" for REST API (not "thetadata-rest-url")
+        lean_config["thetadata-url"] = thetadata_url
+        # Derive websocket URL from REST URL (https -> wss, http -> ws)
+        if thetadata_url != default_rest_url:
+            ws_url = thetadata_url.replace("https://", "wss://").replace("http://", "ws://")
+            if not ws_url.endswith("/v1/events"):
+                ws_url = ws_url.rstrip("/") + "/v1/events"
+        else:
+            ws_url = default_ws_url
+        lean_config["thetadata-ws-url"] = ws_url
+        lean_config["thetadata-subscription-plan"] = "Standard"
         if thetadata_api_key:
             lean_config["thetadata-auth-token"] = thetadata_api_key
 
@@ -545,11 +575,17 @@ def backtest(project: Optional[Path],
         lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
         lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader"
         lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider"
+        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
+        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+        # Use ThetaDataFactorFileProvider to fetch corporate actions (splits/dividends) from ThetaData API
+        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider"
     elif data_provider_historical == "CascadeKalshiData":
         # CascadeKalshiData is built into custom image - configure for Kalshi prediction markets
         lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
         lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader"
         lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider"
+        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
+        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
     else:
         data_provider = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                               cli_data_downloaders, kwargs, logger, environment_name)
