@@ -71,7 +71,7 @@ setup(
     long_description_content_type="text/markdown",
     packages=find_packages(include=["lean", "lean.*"]),
     package_data={
-        "lean": ["ssh/*"]
+        "lean": ["ssh/*", "cascade-modules.json"]
     },
     entry_points={
         "console_scripts": ["lean=lean.main:main"]
