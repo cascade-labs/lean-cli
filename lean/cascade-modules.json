@@ -1,0 +1,68 @@
+{
+    "modules": [
+        {
+            "configurations": [
+                {
+                    "id": "hyperliquid-use-testnet",
+                    "type": "input",
+                    "input-method": "confirm",
+                    "input-default": false,
+                    "optional": true,
+                    "help": "Whether to use the Hyperliquid testnet",
+                    "prompt-info": "Use testnet?"
+                },
+                {
+                    "filters": [
+                        {
+                            "condition": {
+                                "dependent-config-id": "type",
+                                "pattern": "data-downloader",
+                                "type": "exact-match"
+                            }
+                        }
+                    ],
+                    "id": "data-provider",
+                    "type": "info",
+                    "value": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
+                },
+                {
+                    "filters": [
+                        {
+                            "condition": {
+                                "dependent-config-id": "type",
+                                "pattern": "data-downloader",
+                                "type": "exact-match"
+                            }
+                        }
+                    ],
+                    "id": "data-downloader",
+                    "type": "info",
+                    "value": "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader"
+                },
+                {
+                    "filters": [
+                        {
+                            "condition": {
+                                "dependent-config-id": "type",
+                                "pattern": "history-provider",
+                                "type": "exact-match"
+                            }
+                        }
+                    ],
+                    "id": "history-provider",
+                    "type": "info",
+                    "value": "[\"QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider\"]"
+                }
+            ],
+            "display-id": "Hyperliquid",
+            "id": "HyperliquidDataDownloader",
+            "platform": [
+                "cli"
+            ],
+            "type": [
+                "data-downloader",
+                "history-provider"
+            ]
+        }
+    ]
+}

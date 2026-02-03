@@ -52,3 +52,10 @@ if not Path(file_path).is_file():
 with open(file_path) as f:
     data = load(f)
     json_modules = data['modules']
+
+# Load custom Cascade modules if available
+custom_modules_path = directory.parent / "cascade-modules.json"
+if Path(custom_modules_path).is_file():
+    with open(custom_modules_path) as f:
+        custom_data = load(f)
+        json_modules.extend(custom_data.get('modules', []))
