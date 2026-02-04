@@ -378,3 +378,98 @@ class DataServerClient:
             if bt.get("name") == name:
                 return bt
         return None
+
+    # Config API methods
+
+    def _config_request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None,
+                        params: Optional[Dict[str, str]] = None) -> Any:
+        """Makes an authenticated request to the lean config API.
+
+        :param method: the HTTP method
+        :param endpoint: the API endpoint
+        :param data: optional JSON data for POST/PUT/PATCH requests
+        :param params: optional query parameters
+        :return: the parsed response
+        """
+        url = f"{self._base_url}/api/v1/lean/config{endpoint}"
+        if params:
+            query_string = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+            if query_string:
+                url = f"{url}?{query_string}"
+
+        options = {"headers": self._get_headers()}
+        if data is not None:
+            options["json"] = data
+
+        response = self._http_client.request(method, url, raise_for_status=False, **options)
+
+        if self._logger.debug_logging_enabled:
+            self._logger.debug(f"Data server config response: {response.text}")
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        if response.status_code == 204:
+            return None
+
+        return response.json()
+
+    def push_config(
+        self,
+        config: Dict[str, Any],
+        name: str = "default",
+        project_id: Optional[str] = None,
+        description: str = ""
+    ) -> Dict[str, Any]:
+        """Push (upsert) a lean config to the server.
+
+        If a config with the same project_id and name exists, it will be updated.
+        Otherwise, a new config will be created.
+
+        :param config: the configuration data (lean.json contents)
+        :param name: the config name (default: "default")
+        :param project_id: optional project UUID for project-specific config
+        :param description: optional description
+        :return: the created/updated config
+        """
+        data = {
+            "name": name,
+            "config": config,
+            "description": description
+        }
+        if project_id is not None:
+            data["project_id"] = project_id
+
+        return self._config_request("post", "", data)
+
+    def pull_config(
+        self,
+        name: str = "default",
+        project_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Pull a lean config from the server.
+
+        If project_id is provided, tries to find a project-specific config first.
+        If not found, falls back to the global config with the same name.
+
+        :param name: the config name (default: "default")
+        :param project_id: optional project UUID
+        :return: the config data
+        """
+        params = {"name": name}
+        if project_id is not None:
+            params["project_id"] = project_id
+
+        return self._config_request("get", "", params=params)
+
+    def list_configs(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lists all configs, optionally filtered by project.
+
+        :param project_id: optional project UUID to filter by
+        :return: list of configs
+        """
+        params = {}
+        if project_id is not None:
+            params["project_id"] = project_id
+
+        return self._config_request("get", "/list", params=params if params else None)
