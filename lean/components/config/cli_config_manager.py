@@ -140,6 +140,11 @@ class CLIConfigManager:
                                            False,
                                            general_storage)
 
+        self.polygon_api_key = Option("polygon-api-key",
+                                      "The API key for Polygon.io.",
+                                      True,
+                                      credentials_storage)
+
         self.all_options = [
             self.user_id,
             self.api_token,
@@ -161,7 +166,8 @@ class CLIConfigManager:
             self.tradealert_s3_secret_key,
             self.tradealert_s3_endpoint,
             self.tradealert_s3_bucket,
-            self.tradealert_s3_region
+            self.tradealert_s3_region,
+            self.polygon_api_key
         ]
 
     def get_option_by_key(self, key: str) -> Option:

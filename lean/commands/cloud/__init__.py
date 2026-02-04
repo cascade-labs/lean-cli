@@ -23,6 +23,8 @@ from lean.commands.cloud.report import report
 from lean.commands.cloud.status import status
 from lean.commands.cloud.object_store import object_store
 from lean.commands.cloud.config import config
+from lean.commands.cloud.container import container
+from lean.commands.cloud.cli import cli_group
 
 @group()
 def cloud() -> None:
@@ -42,3 +44,5 @@ cloud.add_command(report)
 cloud.add_command(status)
 cloud.add_command(object_store)
 cloud.add_command(config)
+cloud.add_command(container)
+cloud.add_command(cli_group)

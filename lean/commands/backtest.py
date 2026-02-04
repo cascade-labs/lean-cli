@@ -575,8 +575,8 @@ def backtest(project: Optional[Path],
         lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
         lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader"
         lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider"
-        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
-        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+        # Use ThetaDataMapFileProvider to fetch symbol mappings from ThetaData API
+        lean_config["map-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataMapFileProvider"
         # Use ThetaDataFactorFileProvider to fetch corporate actions (splits/dividends) from ThetaData API
         lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider"
     elif data_provider_historical == "CascadeKalshiData":

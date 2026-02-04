@@ -14,11 +14,53 @@
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from uuid import UUID
 
 from lean.components.util.http_client import HTTPClient
 from lean.components.util.logger import Logger
 from lean.models.errors import RequestFailedError
+
+
+class _ProgressFileWrapper:
+    """File wrapper that tracks and logs upload progress.
+
+    This is a file-like object that wraps a file and logs progress
+    as it's read. It supports the iterator protocol for streaming uploads.
+    """
+
+    def __init__(self, file_path: Path, total_size: int, logger: Logger, chunk_size: int = 8 * 1024 * 1024):
+        self._file_path = Path(file_path)
+        self._total_size = total_size
+        self._logger = logger
+        self._chunk_size = chunk_size
+        self._file = None
+        self._bytes_read = 0
+        self._last_percent = 0
+
+    def __iter__(self):
+        self._file = open(self._file_path, "rb")
+        self._bytes_read = 0
+        self._last_percent = 0
+        return self
+
+    def __next__(self):
+        chunk = self._file.read(self._chunk_size)
+        if not chunk:
+            self._file.close()
+            raise StopIteration
+
+        self._bytes_read += len(chunk)
+        percent = int((self._bytes_read / self._total_size) * 100)
+
+        if percent > self._last_percent and percent % 10 == 0:
+            self._logger.info(f"Upload progress: {percent}%")
+            self._last_percent = percent
+
+        return chunk
+
+    def __len__(self):
+        return self._total_size
 
 
 @dataclass
@@ -473,3 +515,356 @@ class DataServerClient:
             params["project_id"] = project_id
 
         return self._config_request("get", "/list", params=params if params else None)
+
+    # Container API methods
+
+    def _container_request(self, method: str, endpoint: str) -> Any:
+        """Makes an authenticated request to the lean containers API.
+
+        :param method: the HTTP method
+        :param endpoint: the API endpoint
+        :return: the parsed response
+        """
+        url = f"{self._base_url}/api/v1/lean/containers{endpoint}"
+
+        options = {"headers": self._get_headers()}
+
+        response = self._http_client.request(method, url, raise_for_status=False, **options)
+
+        if self._logger.debug_logging_enabled:
+            self._logger.debug(f"Data server container response: {response.text}")
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        if response.status_code == 204:
+            return None
+
+        return response.json()
+
+    def push_container(
+        self,
+        container_type: str,
+        tarball: bytes,
+        image_name: str,
+        image_tag: str = "latest"
+    ) -> Dict[str, Any]:
+        """Push (upload/replace) a container tarball.
+
+        :param container_type: container type (engine or research)
+        :param tarball: compressed tarball bytes
+        :param image_name: Docker image name
+        :param image_tag: Docker image tag (default: latest)
+        :return: the created/updated container metadata
+        """
+        url = f"{self._base_url}/api/v1/lean/containers"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        files = {"tarball": ("container.tar.gz", tarball, "application/gzip")}
+        data = {
+            "container_type": container_type,
+            "image_name": image_name,
+            "image_tag": image_tag
+        }
+
+        response = self._http_client.request(
+            "post", url, headers=headers, files=files, data=data, raise_for_status=False
+        )
+
+        if self._logger.debug_logging_enabled:
+            self._logger.debug(f"Data server container push response: {response.text}")
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        return response.json()
+
+    def get_container_upload_url(self, container_type: str) -> Dict[str, Any]:
+        """Get a presigned URL for direct S3 upload.
+
+        :param container_type: container type (engine or research)
+        :return: dict with upload_url and storage_path
+        """
+        return self._container_request("get", f"/{container_type}/upload-url")
+
+    def confirm_container_upload(
+        self,
+        container_type: str,
+        content_hash: str,
+        image_name: str,
+        image_tag: str = "latest",
+        compressed_size_bytes: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Confirm a direct S3 upload and register the container.
+
+        :param container_type: container type (engine or research)
+        :param content_hash: SHA256 hash of the uploaded tarball
+        :param image_name: Docker image name
+        :param image_tag: Docker image tag (default: latest)
+        :param compressed_size_bytes: size of the uploaded file
+        :return: the created/updated container metadata
+        """
+        url = f"{self._base_url}/api/v1/lean/containers/{container_type}/confirm"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        data = {
+            "content_hash": content_hash,
+            "image_name": image_name,
+            "image_tag": image_tag,
+        }
+        if compressed_size_bytes is not None:
+            data["compressed_size_bytes"] = str(compressed_size_bytes)
+
+        response = self._http_client.request(
+            "post", url, headers=headers, data=data, raise_for_status=False
+        )
+
+        if self._logger.debug_logging_enabled:
+            self._logger.debug(f"Data server container confirm response: {response.text}")
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        return response.json()
+
+    def push_container_file(
+        self,
+        container_type: str,
+        tarball_path,
+        content_hash: str,
+        image_name: str,
+        image_tag: str = "latest"
+    ) -> Dict[str, Any]:
+        """Push (upload/replace) a container tarball using direct S3 upload.
+
+        This method uploads directly to S3 using a presigned URL, bypassing
+        the data server for the actual file transfer. This is much more
+        efficient for large files (multi-GB containers).
+
+        Flow:
+        1. Get presigned upload URL from data server
+        2. Upload directly to S3 using PUT request
+        3. Confirm upload with data server
+
+        :param container_type: container type (engine or research)
+        :param tarball_path: path to the compressed tarball file
+        :param content_hash: SHA256 hash of the tarball
+        :param image_name: Docker image name
+        :param image_tag: Docker image tag (default: latest)
+        :return: the created/updated container metadata
+        """
+        import requests
+
+        tarball_path = Path(tarball_path)
+        file_size = tarball_path.stat().st_size
+
+        # Step 1: Get presigned upload URL
+        self._logger.info("Getting presigned upload URL...")
+        url_response = self.get_container_upload_url(container_type)
+        upload_url = url_response["upload_url"]
+
+        # Step 2: Upload directly to S3
+        self._logger.info(f"Uploading {file_size / (1024*1024):.1f} MB directly to S3...")
+
+        # Create a file wrapper that tracks progress
+        file_wrapper = _ProgressFileWrapper(tarball_path, file_size, self._logger)
+
+        response = requests.put(
+            upload_url,
+            data=file_wrapper,
+            headers={
+                "Content-Type": "application/gzip",
+                "Content-Length": str(file_size),
+            },
+            timeout=7200,  # 2 hour timeout for large files
+        )
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RuntimeError(f"S3 upload failed: {response.status_code} {response.text}")
+
+        self._logger.info("S3 upload complete")
+
+        # Step 3: Confirm upload with data server
+        self._logger.info("Confirming upload with data server...")
+        return self.confirm_container_upload(
+            container_type=container_type,
+            content_hash=content_hash,
+            image_name=image_name,
+            image_tag=image_tag,
+            compressed_size_bytes=file_size,
+        )
+
+    def get_container_download_url(self, container_type: str) -> Dict[str, Any]:
+        """Get a presigned URL for direct S3 download.
+
+        :param container_type: container type (engine or research)
+        :return: dict with download_url and container metadata
+        """
+        return self._container_request("get", f"/{container_type}/download-url")
+
+    def get_container(self, container_type: str) -> Dict[str, Any]:
+        """Get container metadata by type.
+
+        :param container_type: container type (engine or research)
+        :return: container metadata
+        """
+        return self._container_request("get", f"/{container_type}")
+
+    def get_container_hash(self, container_type: str) -> Dict[str, Any]:
+        """Get container hash only (lightweight check).
+
+        :param container_type: container type (engine or research)
+        :return: container hash response
+        """
+        return self._container_request("get", f"/{container_type}/hash")
+
+    def download_container(self, container_type: str) -> bytes:
+        """Download container tarball directly from S3.
+
+        Uses presigned URL to download directly from S3 for efficiency.
+
+        :param container_type: container type (engine or research)
+        :return: tarball bytes
+        """
+        import requests
+
+        # Get presigned download URL
+        url_response = self.get_container_download_url(container_type)
+        download_url = url_response["download_url"]
+
+        # Download directly from S3
+        response = requests.get(download_url, timeout=7200)
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RuntimeError(f"S3 download failed: {response.status_code}")
+
+        return response.content
+
+    def download_container_to_file(self, container_type: str, output_path) -> Dict[str, Any]:
+        """Download container tarball directly from S3 to a file.
+
+        Uses presigned URL and streaming download to avoid memory issues
+        with large files.
+
+        :param container_type: container type (engine or research)
+        :param output_path: path to write the tarball to
+        :return: dict with download metadata (content_hash, size, etc.)
+        """
+        import requests
+
+        output_path = Path(output_path)
+
+        # Get presigned download URL and metadata
+        url_response = self.get_container_download_url(container_type)
+        download_url = url_response["download_url"]
+        expected_size = url_response.get("compressed_size_bytes")
+
+        self._logger.info(f"Downloading container from S3...")
+        if expected_size:
+            self._logger.info(f"Expected size: {expected_size / (1024*1024):.1f} MB")
+
+        # Stream download to file
+        with requests.get(download_url, stream=True, timeout=7200) as response:
+            response.raise_for_status()
+
+            bytes_written = 0
+            last_percent = 0
+
+            with open(output_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+                        bytes_written += len(chunk)
+
+                        if expected_size:
+                            percent = int((bytes_written / expected_size) * 100)
+                            if percent > last_percent and percent % 10 == 0:
+                                self._logger.info(f"Download progress: {percent}%")
+                                last_percent = percent
+
+        self._logger.info(f"Downloaded {bytes_written / (1024*1024):.1f} MB to {output_path}")
+
+        return {
+            "content_hash": url_response.get("content_hash"),
+            "compressed_size_bytes": bytes_written,
+            "image_name": url_response.get("image_name"),
+            "image_tag": url_response.get("image_tag"),
+        }
+
+    # CLI Release API methods
+
+    def _cli_request(self, method: str, endpoint: str = "") -> Any:
+        """Makes an authenticated request to the lean CLI release API.
+
+        :param method: the HTTP method
+        :param endpoint: the API endpoint
+        :return: the parsed response
+        """
+        url = f"{self._base_url}/api/v1/lean/cli{endpoint}"
+
+        options = {"headers": self._get_headers()}
+
+        response = self._http_client.request(method, url, raise_for_status=False, **options)
+
+        if self._logger.debug_logging_enabled:
+            self._logger.debug(f"Data server CLI response: {response.text}")
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        if response.status_code == 204:
+            return None
+
+        return response.json()
+
+    def push_cli(self, tarball: bytes) -> Dict[str, Any]:
+        """Push (upload/replace) a CLI release tarball.
+
+        :param tarball: compressed tarball bytes
+        :return: the created/updated CLI release metadata
+        """
+        url = f"{self._base_url}/api/v1/lean/cli"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        files = {"tarball": ("lean-cli.tar.gz", tarball, "application/gzip")}
+
+        response = self._http_client.request(
+            "post", url, headers=headers, files=files, raise_for_status=False
+        )
+
+        if self._logger.debug_logging_enabled:
+            self._logger.debug(f"Data server CLI push response: {response.text}")
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        return response.json()
+
+    def get_cli(self) -> Dict[str, Any]:
+        """Get CLI release metadata.
+
+        :return: CLI release metadata
+        """
+        return self._cli_request("get")
+
+    def get_cli_hash(self) -> Dict[str, Any]:
+        """Get CLI release hash only (lightweight check).
+
+        :return: CLI release hash response
+        """
+        return self._cli_request("get", "/hash")
+
+    def download_cli(self) -> bytes:
+        """Download CLI release tarball.
+
+        :return: tarball bytes
+        """
+        url = f"{self._base_url}/api/v1/lean/cli/download"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        response = self._http_client.request("get", url, headers=headers, raise_for_status=False)
+
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RequestFailedError(response)
+
+        return response.content
