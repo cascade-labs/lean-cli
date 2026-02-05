@@ -58,6 +58,7 @@ install_requires = [
     "setuptools",
     f"quantconnect-stubs{get_stubs_version_range()}",
     "cryptography>=41.0.4",
+    "requests-aws4auth>=1.2.0",
 ]
 
 setup(

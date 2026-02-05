@@ -11,37 +11,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import gzip
-import hashlib
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 
 from click import command, option, Choice
 from lean.click import LeanCommand
 from lean.container import container as di_container
-from lean.models.errors import RequestFailedError
-
-# Cache directory for container hashes
-CONTAINER_CACHE_DIR = Path.home() / ".lean" / "container-cache"
 
 
 def _get_container_runtime() -> str:
-    """Find available container runtime (docker or podman).
-
-    Returns:
-        Path to docker or podman executable
-
-    Raises:
-        RuntimeError: If neither docker nor podman is installed
-    """
-    # Try docker first
+    """Find available container runtime (docker or podman)."""
     docker_path = shutil.which("docker")
     if docker_path:
         return docker_path
 
-    # Fall back to podman
     podman_path = shutil.which("podman")
     if podman_path:
         return podman_path
@@ -49,137 +33,87 @@ def _get_container_runtime() -> str:
     raise RuntimeError("Neither Docker nor Podman is installed or in PATH")
 
 
-def _get_cached_hash(container_type: str) -> str | None:
-    """Get the cached hash for a container type."""
-    hash_file = CONTAINER_CACHE_DIR / f"{container_type}.hash"
-    if hash_file.exists():
-        return hash_file.read_text().strip()
-    return None
+def _login_to_registry(runtime: str, registry: str, username: str, token: str, logger) -> None:
+    """Login to the container registry."""
+    logger.info(f"Logging into registry {registry}...")
 
+    result = subprocess.run(
+        [runtime, "login", registry, "-u", username, "--password-stdin"],
+        input=token.encode(),
+        capture_output=True,
+    )
 
-def _set_cached_hash(container_type: str, content_hash: str) -> None:
-    """Set the cached hash for a container type."""
-    CONTAINER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    hash_file = CONTAINER_CACHE_DIR / f"{container_type}.hash"
-    hash_file.write_text(content_hash)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to login to registry: {result.stderr.decode()}")
 
 
 @command(cls=LeanCommand)
 @option("--type", "container_type", type=Choice(["engine", "research"], case_sensitive=False),
         required=True, help="Container type (engine or research)")
-@option("--force", is_flag=True, default=False,
-        help="Force pull even if local hash matches remote")
-@option("--check-only", is_flag=True, default=False,
-        help="Only check if an update is available, don't download")
-def pull(container_type: str, force: bool, check_only: bool) -> None:
-    """Pull a Docker container image from the data server.
+@option("--tag", type=str, default=None,
+        help="Optional local tag to apply after pulling (e.g., my-lean:latest)")
+def pull(container_type: str, tag: str) -> None:
+    """Pull a Docker container image from the container registry.
 
-    This downloads a compressed tarball from the data server, decompresses it,
-    and loads it into Docker using 'docker load'.
+    This pulls the image from the configured container registry using native
+    docker/podman pull for efficient layer-based transfer.
 
     \b
     Examples:
         lean cloud container pull --type engine
-        lean cloud container pull --type research --force
-        lean cloud container pull --type engine --check-only
+        lean cloud container pull --type research --tag my-research:latest
     """
     logger = di_container.logger
+    cli_config = di_container.cli_config_manager
 
-    logger.info(f"Checking container '{container_type}' on data server...")
+    # Get registry config
+    registry = cli_config.container_registry.get_value()
+    namespace = cli_config.container_registry_namespace.get_value()
+    username = cli_config.container_registry_username.get_value()
+    token = cli_config.container_registry_token.get_value()
 
-    # Get data server client
-    data_server_client = di_container.data_server_client
+    if not all([registry, namespace, username, token]):
+        raise RuntimeError(
+            "Container registry not configured. Set the following config values:\n"
+            "  lean config set container-registry <registry>\n"
+            "  lean config set container-registry-namespace <namespace>\n"
+            "  lean config set container-registry-username <username>\n"
+            "  lean config set container-registry-token <token>"
+        )
 
-    # Get remote hash
-    try:
-        remote_hash_response = data_server_client.get_container_hash(container_type)
-        remote_hash = remote_hash_response.get("content_hash")
-        logger.info(f"Remote container hash: {remote_hash[:12]}...")
-    except RequestFailedError as e:
-        if e.response.status_code == 404:
-            logger.info(f"No container '{container_type}' found on server")
-            return
-        raise
-
-    # Check local cached hash
-    local_hash = _get_cached_hash(container_type)
-    if local_hash:
-        logger.info(f"Local cached hash: {local_hash[:12]}...")
-    else:
-        logger.info("No local cached hash found")
-
-    # Determine if update is needed
-    update_needed = force or local_hash != remote_hash
-
-    if not update_needed:
-        logger.info("Container is already up to date")
-        return
-
-    if check_only:
-        logger.info("Update available!")
-        logger.info(f"  Local hash:  {local_hash[:12] if local_hash else '(none)'}...")
-        logger.info(f"  Remote hash: {remote_hash[:12]}...")
-        return
-
-    # Find container runtime early
+    # Find container runtime
     runtime = _get_container_runtime()
     runtime_name = Path(runtime).name
     logger.info(f"Using container runtime: {runtime_name}")
 
-    # Download and load into container runtime
-    with tempfile.TemporaryDirectory() as tmpdir:
-        gz_path = Path(tmpdir) / "container.tar.gz"
-        tar_path = Path(tmpdir) / "container.tar"
+    # Build the remote image name
+    remote_image = f"{registry}/{namespace}/lean-{container_type}:latest"
 
-        # Stream download directly to file (avoids loading entire file into memory)
-        logger.info("Downloading container tarball directly from S3...")
-        download_info = data_server_client.download_container_to_file(container_type, gz_path)
+    logger.info(f"Pulling '{remote_image}'")
 
-        # Verify hash by reading the file in chunks
-        logger.info("Verifying download integrity...")
-        sha256 = hashlib.sha256()
-        with open(gz_path, "rb") as f:
-            while True:
-                chunk = f.read(8192)
-                if not chunk:
-                    break
-                sha256.update(chunk)
-        computed_hash = sha256.hexdigest()
+    # Login to registry
+    _login_to_registry(runtime, registry, username, token, logger)
 
-        if computed_hash != remote_hash:
-            raise RuntimeError(f"Hash mismatch! Expected {remote_hash[:12]}..., got {computed_hash[:12]}...")
-        logger.info("Hash verified")
+    # Pull from registry
+    logger.info(f"Pulling from registry (this uses efficient layer-based transfer)...")
+    result = subprocess.run(
+        [runtime, "pull", remote_image],
+        capture_output=False,  # Show output directly for progress
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to pull image")
 
-        # Decompress
-        logger.info("Decompressing tarball...")
-        with gzip.open(gz_path, "rb") as f_in:
-            with open(tar_path, "wb") as f_out:
-                while True:
-                    chunk = f_in.read(8 * 1024 * 1024)  # 8MB chunks
-                    if not chunk:
-                        break
-                    f_out.write(chunk)
-
-        tar_size_mb = tar_path.stat().st_size / (1024 * 1024)
-        logger.info(f"Decompressed size: {tar_size_mb:.1f} MB")
-
-        # Load into container runtime
-        logger.info(f"Loading image into {runtime_name}...")
+    # Optionally tag with a local name
+    if tag:
+        logger.info(f"Tagging as '{tag}'...")
         result = subprocess.run(
-            [runtime, "load", "-i", str(tar_path)],
+            [runtime, "tag", remote_image, tag],
             capture_output=True,
-            text=True
         )
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to load image: {result.stderr}")
-
-        # Parse loaded image name from output
-        # Output is like "Loaded image: quantconnect/lean:latest"
-        for line in result.stdout.strip().split("\n"):
-            if "Loaded image" in line:
-                logger.info(line)
-
-    # Update cached hash
-    _set_cached_hash(container_type, remote_hash)
+            raise RuntimeError(f"Failed to tag image: {result.stderr.decode()}")
 
     logger.info(f"Successfully pulled container '{container_type}'")
+    logger.info(f"  Remote image: {remote_image}")
+    if tag:
+        logger.info(f"  Local tag: {tag}")

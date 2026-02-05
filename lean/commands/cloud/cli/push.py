@@ -15,12 +15,12 @@ import gzip
 import hashlib
 import io
 import tarfile
+import tempfile
 from pathlib import Path
 
 from click import command, option
 from lean.click import LeanCommand
 from lean.container import container as di_container
-from lean.models.errors import RequestFailedError
 
 
 def _find_lean_cli_root() -> Path:
@@ -44,14 +44,18 @@ def _find_lean_cli_root() -> Path:
     raise RuntimeError("Could not find lean-cli source directory")
 
 
-def _create_cli_tarball(source_dir: Path) -> bytes:
+def _get_cli_version() -> str:
+    """Get the current lean-cli version."""
+    import lean
+    return lean.__version__
+
+
+def _create_cli_tarball(source_dir: Path, output_path: Path) -> None:
     """Create a gzip-compressed tarball of the lean-cli source.
 
     Args:
         source_dir: Path to the lean-cli root directory
-
-    Returns:
-        Compressed tarball bytes
+        output_path: Path to write the tarball to
     """
     # Files and directories to include
     include_patterns = [
@@ -92,7 +96,7 @@ def _create_cli_tarball(source_dir: Path) -> bytes:
                 return True
         return False
 
-    # Create tarball in memory
+    # Create tarball in memory first, then compress to file
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
         for pattern in include_patterns:
@@ -115,14 +119,10 @@ def _create_cli_tarball(source_dir: Path) -> bytes:
                             arcname = str(file_path.relative_to(source_dir))
                             tar.add(file_path, arcname=arcname)
 
-    # Compress with gzip
+    # Compress with gzip to file
     tar_buffer.seek(0)
-    gz_buffer = io.BytesIO()
-    with gzip.GzipFile(fileobj=gz_buffer, mode="wb", compresslevel=6) as gz:
+    with gzip.open(output_path, "wb", compresslevel=6) as gz:
         gz.write(tar_buffer.read())
-
-    gz_buffer.seek(0)
-    return gz_buffer.read()
 
 
 @command(cls=LeanCommand)
@@ -131,10 +131,10 @@ def _create_cli_tarball(source_dir: Path) -> bytes:
 @option("--source", type=str, default=None,
         help="Path to lean-cli source directory (auto-detected if not specified)")
 def push(force: bool, source: str) -> None:
-    """Push the lean-cli source to the data server.
+    """Push the lean-cli source to S3 storage.
 
-    This creates a tarball of the lean-cli source directory and uploads it to
-    the data server. Workers can then download and install updates automatically.
+    This creates a tarball of the lean-cli source directory and uploads it
+    directly to S3. Workers can then download and install updates automatically.
 
     Only the latest version is stored (no version history).
 
@@ -146,6 +146,11 @@ def push(force: bool, source: str) -> None:
     """
     logger = di_container.logger
 
+    # Get S3 storage client
+    s3_client = di_container.s3_storage_client
+    if s3_client is None:
+        raise RuntimeError("S3 storage not configured. Run 'lean login' to set up S3 credentials.")
+
     # Find or use provided source directory
     if source:
         source_dir = Path(source)
@@ -156,45 +161,55 @@ def push(force: bool, source: str) -> None:
 
     logger.info(f"Using lean-cli source from: {source_dir}")
 
-    # Get data server client
-    data_server_client = di_container.data_server_client
+    # Get version
+    version = _get_cli_version()
+    logger.info(f"CLI version: {version}")
 
     # Check remote hash to see if we can skip upload
     if not force:
-        try:
-            remote_hash_response = data_server_client.get_cli_hash()
-            remote_hash = remote_hash_response.get("content_hash")
+        remote_hash = s3_client.get_cli_hash()
+        if remote_hash:
             logger.info(f"Remote CLI hash: {remote_hash[:12]}...")
-        except RequestFailedError as e:
-            if e.response.status_code == 404:
-                remote_hash = None
-                logger.info("No existing CLI release found on server")
-            else:
-                raise
+        else:
+            logger.info("No existing CLI release found in S3")
     else:
         remote_hash = None
         logger.info("Force flag set, skipping remote hash check")
 
-    # Create tarball
-    logger.info("Creating tarball of lean-cli source...")
-    tarball = _create_cli_tarball(source_dir)
-    size_mb = len(tarball) / (1024 * 1024)
-    logger.info(f"Tarball size: {size_mb:.2f} MB")
+    # Create tarball to temp file
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tarball_path = Path(tmpdir) / "lean-cli.tar.gz"
 
-    # Compute hash
-    content_hash = hashlib.sha256(tarball).hexdigest()
-    logger.info(f"Content hash: {content_hash[:12]}...")
+        logger.info("Creating tarball of lean-cli source...")
+        _create_cli_tarball(source_dir, tarball_path)
 
-    # Check if upload is needed
-    if remote_hash and remote_hash == content_hash:
-        logger.info("Remote CLI is already up to date, skipping upload")
-        return
+        size_mb = tarball_path.stat().st_size / (1024 * 1024)
+        logger.info(f"Tarball size: {size_mb:.2f} MB")
 
-    # Upload to server
-    logger.info("Uploading CLI to server...")
-    result = data_server_client.push_cli(tarball=tarball)
+        # Compute hash
+        sha256 = hashlib.sha256()
+        with open(tarball_path, "rb") as f:
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                sha256.update(chunk)
+        content_hash = sha256.hexdigest()
+        logger.info(f"Content hash: {content_hash[:12]}...")
+
+        # Check if upload is needed
+        if remote_hash and remote_hash == content_hash:
+            logger.info("Remote CLI is already up to date, skipping upload")
+            return
+
+        # Upload directly to S3
+        result = s3_client.upload_cli(
+            file_path=tarball_path,
+            content_hash=content_hash,
+            version=version
+        )
 
     logger.info("Successfully pushed lean-cli")
-    logger.info(f"  ID: {result['id']}")
     logger.info(f"  Hash: {result['content_hash'][:12]}...")
+    logger.info(f"  Version: {result['version']}")
     logger.info(f"  Size: {result.get('compressed_size_bytes', 0) / (1024 * 1024):.2f} MB")
