@@ -28,19 +28,8 @@ from lean.components.util.live_utils import get_last_portfolio_cash_holdings, co
                                             _configure_initial_cash_interactively, _configure_initial_holdings_interactively
 from lean.components.util.json_modules_handler import build_and_configure_modules, \
     non_interactive_config_build_for_name, interactive_config_build, config_build_for_name
-
-
-# Simplified aliases for Cascade data providers
-# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
-_CASCADE_PROVIDER_ALIASES = {
-    "thetadata": "CascadeThetaData",
-    "kalshi": "CascadeKalshiData",
-    "hyper": "Hyperliquid",
-}
-
-# Full list of cascade providers (both aliases and full names for backward compatibility)
-# Hyperliquid is already in cli_data_downloaders via cascade-modules.json, so "hyper" is just an alias
-_CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "CascadeThetaData", "CascadeKalshiData"]
+from lean.components.util.data_provider_config import CASCADE_PROVIDERS, \
+    normalize_data_provider_historical, get_cascade_provider_config
 
 
 _environment_skeleton = {
@@ -85,7 +74,7 @@ def _get_history_provider_name(data_provider_live_names: [str]) -> [str]:
               multiple=True,
               help="The live data provider to use")
 @option("--data-provider-historical",
-              type=Choice([dp.get_name() for dp in cli_data_downloaders if dp.get_id() != "TerminalLinkBrokerage"] + _CASCADE_PROVIDERS, case_sensitive=False),
+              type=Choice([dp.get_name() for dp in cli_data_downloaders if dp.get_id() != "TerminalLinkBrokerage"] + CASCADE_PROVIDERS, case_sensitive=False),
               help="Update the Lean configuration file to retrieve data from the given historical provider")
 @options_from_json(get_configs_for_options("live-cli"))
 @option("--release",
@@ -248,26 +237,13 @@ def deploy(project: Path,
         data_provider_historical = "Local"
 
     # Normalize cascade provider aliases to their full names
-    data_provider_historical_lower = data_provider_historical.lower()
-    if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
-        data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
+    data_provider_historical = normalize_data_provider_historical(data_provider_historical)
 
     # Handle cascade providers specially (built into custom image)
     data_downloader_instances = None
-    if data_provider_historical == "CascadeThetaData":
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider"
-        # Use ThetaDataMapFileProvider to fetch symbol mappings from ThetaData API
-        lean_config["map-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataMapFileProvider"
-        # Use ThetaDataFactorFileProvider to fetch corporate actions (splits/dividends) from ThetaData API
-        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider"
-    elif data_provider_historical == "CascadeKalshiData":
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider"
-        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
-        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+    cascade_config = get_cascade_provider_config(data_provider_historical)
+    if cascade_config is not None:
+        lean_config.update(cascade_config)
     else:
         data_downloader_instances = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                                           cli_data_downloaders, kwargs, logger,

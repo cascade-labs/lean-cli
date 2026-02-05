@@ -21,20 +21,9 @@ from lean.container import container
 from lean.models.cli import cli_data_downloaders
 from lean.components.util.name_extraction import convert_to_class_name
 from lean.components.util.json_modules_handler import non_interactive_config_build_for_name
+from lean.components.util.data_provider_config import CASCADE_PROVIDERS, \
+    normalize_data_provider_historical, get_cascade_provider_config
 from lean.models.click_options import options_from_json, get_configs_for_options
-
-
-# Simplified aliases for Cascade data providers
-# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
-_CASCADE_PROVIDER_ALIASES = {
-    "thetadata": "CascadeThetaData",
-    "kalshi": "CascadeKalshiData",
-    "hyper": "Hyperliquid",
-}
-
-# Full list of cascade providers (both aliases and full names for backward compatibility)
-# Hyperliquid is already in cli_data_downloaders via cascade-modules.json, so "hyper" is just an alias
-_CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "CascadeThetaData", "CascadeKalshiData"]
 
 
 def _check_docker_output(chunk: str, port: int) -> None:
@@ -52,7 +41,7 @@ def _check_docker_output(chunk: str, port: int) -> None:
 @argument("project", type=PathParameter(exists=True, file_okay=False, dir_okay=True))
 @option("--port", type=int, default=8888, help="The port to run Jupyter Lab on (defaults to 8888)")
 @option("--data-provider-historical",
-              type=Choice([dp.get_name() for dp in cli_data_downloaders] + _CASCADE_PROVIDERS, case_sensitive=False),
+              type=Choice([dp.get_name() for dp in cli_data_downloaders] + CASCADE_PROVIDERS, case_sensitive=False),
               default="Local",
               help="Update the Lean configuration file to retrieve data from the given historical provider")
 @options_from_json(get_configs_for_options("research"))
@@ -141,9 +130,7 @@ def research(project: Path,
 
     # Normalize cascade provider aliases to their full names
     if data_provider_historical is not None:
-        data_provider_historical_lower = data_provider_historical.lower()
-        if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
-            data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
+        data_provider_historical = normalize_data_provider_historical(data_provider_historical)
 
     research_image, container_module_version, project_config = container.manage_docker_image(image, update, no_update,
                                                                                              algorithm_file.parent,
@@ -151,22 +138,9 @@ def research(project: Path,
 
     paths_to_mount = None
 
-    if data_provider_historical == "CascadeThetaData":
-        # CascadeThetaData is built into custom image - configure data provider and downloader
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider"
-        # Use ThetaDataMapFileProvider to fetch symbol mappings from ThetaData API
-        lean_config["map-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataMapFileProvider"
-        # Use ThetaDataFactorFileProvider to fetch corporate actions (splits/dividends) from ThetaData API
-        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider"
-    elif data_provider_historical == "CascadeKalshiData":
-        # CascadeKalshiData is built into custom image - configure for Kalshi prediction markets
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider"
-        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
-        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+    cascade_config = get_cascade_provider_config(data_provider_historical) if data_provider_historical else None
+    if cascade_config is not None:
+        lean_config.update(cascade_config)
     elif data_provider_historical is not None:
         organization_id = container.organization_manager.try_get_working_organization_id()
         data_provider = non_interactive_config_build_for_name(lean_config, data_provider_historical,

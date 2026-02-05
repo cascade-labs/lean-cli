@@ -297,7 +297,8 @@ class DataServerClient:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         initial_capital: float = 100000,
-        data_provider_historical: Optional[str] = None
+        data_provider_historical: Optional[str] = None,
+        provider_config: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """Creates a new backtest job.
 
@@ -308,6 +309,7 @@ class DataServerClient:
         :param end_date: optional end date (ISO format)
         :param initial_capital: initial capital (default 100000)
         :param data_provider_historical: optional historical data provider
+        :param provider_config: optional provider config associations (data-provider, data-downloader, etc.)
         :return: the created backtest
         """
         data = {
@@ -320,8 +322,14 @@ class DataServerClient:
             data["start_date"] = start_date
         if end_date:
             data["end_date"] = end_date
+        # Store provider config in config dict
+        config = {}
         if data_provider_historical:
-            data["data_provider_historical"] = data_provider_historical
+            config["data_provider_historical"] = data_provider_historical
+        if provider_config:
+            config.update(provider_config)
+        if config:
+            data["config"] = config
 
         return self._backtest_request("post", "", data)
 

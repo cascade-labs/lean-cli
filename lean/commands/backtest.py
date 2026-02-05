@@ -24,21 +24,9 @@ from lean.container import container, Logger
 from lean.models.utils import DebuggingMethod
 from lean.models.cli import cli_data_downloaders, cli_addon_modules
 from lean.components.util.json_modules_handler import build_and_configure_modules, non_interactive_config_build_for_name
+from lean.components.util.data_provider_config import CASCADE_PROVIDER_ALIASES, CASCADE_PROVIDERS, \
+    normalize_data_provider_historical, get_cascade_provider_config
 from lean.models.click_options import options_from_json, get_configs_for_options
-
-
-# Simplified aliases for Cascade data providers
-# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
-_CASCADE_PROVIDER_ALIASES = {
-    "thetadata": "CascadeThetaData",
-    "kalshi": "CascadeKalshiData",
-    "hyper": "Hyperliquid",
-    "polygon": "Polygon",
-}
-
-# Full list of cascade providers (both aliases and full names for backward compatibility)
-# Hyperliquid is already in cli_data_downloaders via cascade-modules.json, so "hyper" is just an alias
-_CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "CascadeThetaData", "CascadeKalshiData"]
 
 
 def _list_local_backtests(project: Optional[Path]) -> None:
@@ -358,7 +346,7 @@ def _migrate_csharp_csproj(project_dir: Path) -> None:
               type=Choice(["pycharm", "ptvsd", "debugpy", "vsdbg", "rider", "local-platform"], case_sensitive=False),
               help="Enable a certain debugging method (see --help for more information)")
 @option("--data-provider-historical",
-              type=Choice([dp.get_name() for dp in cli_data_downloaders] + _CASCADE_PROVIDERS, case_sensitive=False),
+              type=Choice([dp.get_name() for dp in cli_data_downloaders] + CASCADE_PROVIDERS, case_sensitive=False),
               default="Local",
               help="Update the Lean configuration file to retrieve data from the given historical provider")
 @options_from_json(get_configs_for_options("backtest"))
@@ -516,9 +504,7 @@ def backtest(project: Optional[Path],
         data_provider_historical = "QuantConnect"
 
     # Normalize cascade provider aliases to their full names
-    data_provider_historical_lower = data_provider_historical.lower()
-    if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
-        data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
+    data_provider_historical = normalize_data_provider_historical(data_provider_historical)
 
     # Inject ThetaData configuration when that provider is explicitly selected
     if data_provider_historical == "CascadeThetaData":
@@ -571,45 +557,21 @@ def backtest(project: Optional[Path],
     engine_image, container_module_version, project_config = container.manage_docker_image(image, update, no_update,
                                                                                            algorithm_file.parent)
 
-    if data_provider_historical == "CascadeThetaData":
-        # CascadeThetaData is built into custom image - configure data provider and downloader
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider"
-        # Use ThetaDataMapFileProvider to fetch symbol mappings from ThetaData API
-        lean_config["map-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataMapFileProvider"
-        # Use ThetaDataFactorFileProvider to fetch corporate actions (splits/dividends) from ThetaData API
-        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider"
-    elif data_provider_historical == "CascadeKalshiData":
-        # CascadeKalshiData is built into custom image - configure for Kalshi prediction markets
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider"
-        # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
-        lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
-    elif data_provider_historical == "Hyperliquid":
-        # Hyperliquid is built into custom image - configure for Hyperliquid perps + spot
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider"
-        # Inject AWS credentials for S3 historical data (if configured)
-        hl_aws_key = cli_config_manager.hyperliquid_aws_access_key_id.get_value()
-        hl_aws_secret = cli_config_manager.hyperliquid_aws_secret_access_key.get_value()
-        if hl_aws_key:
-            lean_config["hyperliquid-aws-access-key-id"] = hl_aws_key
-        if hl_aws_secret:
-            lean_config["hyperliquid-aws-secret-access-key"] = hl_aws_secret
-    elif data_provider_historical == "Polygon":
-        # Polygon is built into custom image - configure data provider, downloader, and auxiliary providers
-        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
-        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.Polygon.PolygonDataDownloader"
-        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.Polygon.PolygonDataProvider"
-        lean_config["map-file-provider"] = "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider"
-        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider"
-        # Inject Polygon API key from CLI credentials
-        polygon_api_key = cli_config_manager.polygon_api_key.get_value()
-        if polygon_api_key:
-            lean_config["polygon-api-key"] = polygon_api_key
+    cascade_config = get_cascade_provider_config(data_provider_historical)
+    if cascade_config is not None:
+        lean_config.update(cascade_config)
+        # Inject provider-specific credentials for local Docker runs
+        if data_provider_historical == "Hyperliquid":
+            hl_aws_key = cli_config_manager.hyperliquid_aws_access_key_id.get_value()
+            hl_aws_secret = cli_config_manager.hyperliquid_aws_secret_access_key.get_value()
+            if hl_aws_key:
+                lean_config["hyperliquid-aws-access-key-id"] = hl_aws_key
+            if hl_aws_secret:
+                lean_config["hyperliquid-aws-secret-access-key"] = hl_aws_secret
+        elif data_provider_historical == "Polygon":
+            polygon_api_key = cli_config_manager.polygon_api_key.get_value()
+            if polygon_api_key:
+                lean_config["polygon-api-key"] = polygon_api_key
     else:
         data_provider = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                               cli_data_downloaders, kwargs, logger, environment_name)

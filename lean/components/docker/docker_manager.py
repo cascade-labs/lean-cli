@@ -40,6 +40,7 @@ class DockerManager:
         self._temp_manager = temp_manager
         self._platform_manager = platform_manager
         self._cli_config_manager = cli_config_manager
+        self._docker_client = None
 
     def get_image_labels(self, image: str) -> str:
         docker_image = self._get_docker_client().images.get(image)
@@ -219,7 +220,7 @@ class DockerManager:
         try:
             container = docker_client.containers.run(str(image), None, **kwargs)
         except:
-            docker_client.close()
+            self.close()
             raise
 
         if verify_stability:
@@ -246,7 +247,7 @@ class DockerManager:
                 sleep(0.5)
             self._logger.info(f'Deployment \'{container.name}\' is stable')
         if detach:
-            docker_client.close()
+            self.close()
             return True
 
         force_kill_next = False
@@ -356,7 +357,7 @@ class DockerManager:
             except APIError:
                 pass
             finally:
-                docker_client.close()
+                self.close()
                 exit(1)
 
         container.wait()
@@ -378,7 +379,7 @@ class DockerManager:
                 success = True
 
         container.remove()
-        docker_client.close()
+        self.close()
         return success
 
     def build_image(self, root: Path, dockerfile: Path, target: DockerImage) -> None:
@@ -622,13 +623,25 @@ class DockerManager:
         }
 
 
+    def close(self):
+        """Closes the cached Docker client connection if one exists."""
+        if self._docker_client is not None:
+            try:
+                self._docker_client.close()
+            except Exception:
+                pass
+            self._docker_client = None
+
     def _get_docker_client(self):
-        """Creates a DockerClient instance.
+        """Returns a cached DockerClient instance, creating one if needed.
 
         Raises an error if Docker is not running.
 
         :return: a DockerClient instance which responds to requests
         """
+        if self._docker_client is not None:
+            return self._docker_client
+
         error = MoreInfoError("Please make sure Docker is installed and running",
                               "https://www.lean.io/docs/v2/lean-cli/key-concepts/troubleshooting#02-Common-Errors")
 
@@ -644,6 +657,7 @@ class DockerManager:
         except Exception:
             raise error
 
+        self._docker_client = docker_client
         return docker_client
 
     def _format_source_path(self, path: str) -> str:

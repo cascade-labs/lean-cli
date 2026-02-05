@@ -18,15 +18,7 @@ from click import command, argument, option
 
 from lean.click import LeanCommand, backtest_parameter_option
 from lean.container import container
-
-
-# Simplified aliases for Cascade data providers
-# Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
-_CASCADE_PROVIDER_ALIASES = {
-    "thetadata": "CascadeThetaData",
-    "kalshi": "CascadeKalshiData",
-    "hyper": "Hyperliquid",
-}
+from lean.components.util.data_provider_config import normalize_data_provider_historical, get_cascade_provider_config
 
 
 def _list_cascade_backtests(project: Optional[str], status: Optional[str]) -> None:
@@ -155,9 +147,10 @@ def _run_cascade_backtest(
 
     # Normalize cascade provider aliases to their full names
     if data_provider_historical is not None:
-        data_provider_historical_lower = data_provider_historical.lower()
-        if data_provider_historical_lower in _CASCADE_PROVIDER_ALIASES:
-            data_provider_historical = _CASCADE_PROVIDER_ALIASES[data_provider_historical_lower]
+        data_provider_historical = normalize_data_provider_historical(data_provider_historical)
+
+    # Get provider config associations so the server knows which modules to use
+    provider_config = get_cascade_provider_config(data_provider_historical) if data_provider_historical else None
 
     # Create backtest job
     logger.info(f"Creating backtest '{name}'...")
@@ -169,6 +162,7 @@ def _run_cascade_backtest(
         end_date=end_date,
         initial_capital=initial_capital,
         data_provider_historical=data_provider_historical,
+        provider_config=provider_config,
     )
 
     backtest_id = backtest["id"]
