@@ -266,6 +266,7 @@ class LeanConfigManager:
             "polygon-api-key": self._cli_config_manager.polygon_api_key.get_value(default=""),
             "hyperliquid-aws-access-key-id": self._cli_config_manager.hyperliquid_aws_access_key_id.get_value(default=""),
             "hyperliquid-aws-secret-access-key": self._cli_config_manager.hyperliquid_aws_secret_access_key.get_value(default=""),
+            "security-data-feeds": self._cli_config_manager.security_data_feeds.get_value(default=""),
         }
 
         for key, value in config_defaults.items():

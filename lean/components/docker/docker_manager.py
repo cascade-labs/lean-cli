@@ -216,7 +216,11 @@ class DockerManager:
         self._logger.debug(kwargs)
 
         docker_client = self._get_docker_client()
-        container = docker_client.containers.run(str(image), None, **kwargs)
+        try:
+            container = docker_client.containers.run(str(image), None, **kwargs)
+        except:
+            docker_client.close()
+            raise
 
         if verify_stability:
             from time import sleep
@@ -242,6 +246,7 @@ class DockerManager:
                 sleep(0.5)
             self._logger.info(f'Deployment \'{container.name}\' is stable')
         if detach:
+            docker_client.close()
             return True
 
         force_kill_next = False
@@ -351,6 +356,7 @@ class DockerManager:
             except APIError:
                 pass
             finally:
+                docker_client.close()
                 exit(1)
 
         container.wait()
@@ -372,6 +378,7 @@ class DockerManager:
                 success = True
 
         container.remove()
+        docker_client.close()
         return success
 
     def build_image(self, root: Path, dockerfile: Path, target: DockerImage) -> None:

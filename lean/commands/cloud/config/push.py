@@ -68,6 +68,7 @@ def push(name: str, project_id: str, description: str, dry_run: bool) -> None:
         "container-registry-namespace": cli_config_manager.container_registry_namespace.get_value(),
         "container-registry-username": cli_config_manager.container_registry_username.get_value(),
         "container-registry-token": cli_config_manager.container_registry_token.get_value(),
+        "security-data-feeds": cli_config_manager.security_data_feeds.get_value(),
     }
 
     credentials_merged = 0

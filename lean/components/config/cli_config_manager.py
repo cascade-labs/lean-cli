@@ -180,6 +180,11 @@ class CLIConfigManager:
                                                          True,
                                                          credentials_storage)
 
+        self.security_data_feeds = Option("security-data-feeds",
+                                          "The security data feeds configuration (JSON string, e.g. '{ \"Equity\": [\"Trade\"] }').",
+                                          False,
+                                          general_storage)
+
         self.all_options = [
             self.user_id,
             self.api_token,
@@ -209,7 +214,8 @@ class CLIConfigManager:
             self.container_registry_token,
             self.polygon_api_key,
             self.hyperliquid_aws_access_key_id,
-            self.hyperliquid_aws_secret_access_key
+            self.hyperliquid_aws_secret_access_key,
+            self.security_data_feeds
         ]
 
     def get_option_by_key(self, key: str) -> Option:
