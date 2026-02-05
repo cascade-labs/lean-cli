@@ -16,6 +16,7 @@ from typing import Union, Any, Optional, Tuple
 
 from lean.components.api.api_client import APIClient
 from lean.components.api.data_server_client import DataServerClient
+from lean.components.api.s3_storage_client import S3StorageClient
 from lean.components.config.lean_config_manager import LeanConfigManager
 from lean.components.config.project_config_manager import ProjectConfigManager
 from lean.components.util.path_manager import PathManager
@@ -177,6 +178,7 @@ class Container:
         self._data_server_client = None
         self._data_server_push_manager = None
         self._data_server_pull_manager = None
+        self._s3_storage_client = None
 
     @property
     def data_server_client(self) -> Optional[DataServerClient]:
@@ -216,6 +218,28 @@ class Container:
                 self.project_config_manager
             )
         return self._data_server_pull_manager
+
+    @property
+    def s3_storage_client(self) -> Optional[S3StorageClient]:
+        """Returns the S3 storage client for lean container/CLI storage."""
+        if self._s3_storage_client is None:
+            endpoint = self.cli_config_manager.tradealert_s3_endpoint.get_value()
+            # Use lean-storage-bucket for container/CLI storage, separate from tradealert bucket
+            bucket = self.cli_config_manager.lean_storage_bucket.get_value()
+            access_key = self.cli_config_manager.tradealert_s3_access_key.get_value()
+            secret_key = self.cli_config_manager.tradealert_s3_secret_key.get_value()
+            region = self.cli_config_manager.tradealert_s3_region.get_value() or "us-ashburn-1"
+
+            if endpoint and bucket and access_key and secret_key:
+                self._s3_storage_client = S3StorageClient(
+                    self.logger,
+                    endpoint,
+                    bucket,
+                    access_key,
+                    secret_key,
+                    region
+                )
+        return self._s3_storage_client
 
     def manage_docker_image(self, image: Optional[str], update: bool, no_update: bool,
                             project_directory: Path = None,

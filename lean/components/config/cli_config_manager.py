@@ -140,6 +140,31 @@ class CLIConfigManager:
                                            False,
                                            general_storage)
 
+        self.lean_storage_bucket = Option("lean-storage-bucket",
+                                          "The bucket name for lean container/CLI storage (uses same S3 credentials as tradealert).",
+                                          False,
+                                          general_storage)
+
+        self.container_registry = Option("container-registry",
+                                         "The container registry endpoint (e.g., iad.ocir.io).",
+                                         False,
+                                         general_storage)
+
+        self.container_registry_namespace = Option("container-registry-namespace",
+                                                   "The container registry namespace.",
+                                                   False,
+                                                   general_storage)
+
+        self.container_registry_username = Option("container-registry-username",
+                                                  "The container registry username (e.g., namespace/email).",
+                                                  False,
+                                                  general_storage)
+
+        self.container_registry_token = Option("container-registry-token",
+                                               "The container registry auth token.",
+                                               True,
+                                               credentials_storage)
+
         self.polygon_api_key = Option("polygon-api-key",
                                       "The API key for Polygon.io.",
                                       True,
@@ -167,6 +192,11 @@ class CLIConfigManager:
             self.tradealert_s3_endpoint,
             self.tradealert_s3_bucket,
             self.tradealert_s3_region,
+            self.lean_storage_bucket,
+            self.container_registry,
+            self.container_registry_namespace,
+            self.container_registry_username,
+            self.container_registry_token,
             self.polygon_api_key
         ]
 

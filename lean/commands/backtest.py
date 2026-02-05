@@ -586,6 +586,11 @@ def backtest(project: Optional[Path],
         lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider"
         # Use IdentityMapFileProvider to handle symbols without map files (returns identity mappings)
         lean_config["map-file-provider"] = "QuantConnect.Data.Auxiliary.IdentityMapFileProvider"
+    elif data_provider_historical == "Hyperliquid":
+        # Hyperliquid is built into custom image - configure for Hyperliquid perps + spot
+        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
+        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader"
+        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider"
     else:
         data_provider = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                               cli_data_downloaders, kwargs, logger, environment_name)
