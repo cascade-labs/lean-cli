@@ -85,10 +85,10 @@ class DataDownloader:
                 self._lean_config_manager.set_properties({"file-database-last-update": now.strftime('%m/%d/%Y %H:%M:%S')})
 
                 _store_local_file(self._api_client.data.download_public_file(
-                    "https://raw.githubusercontent.com/QuantConnect/Lean/master/Data/symbol-properties/symbol-properties-database.csv"),
+                    "https://raw.githubusercontent.com/cascade-labs/Lean/master/Data/symbol-properties/symbol-properties-database.csv"),
                     data_dir / "symbol-properties" / "symbol-properties-database.csv")
                 _store_local_file(self._api_client.data.download_public_file(
-                    "https://raw.githubusercontent.com/QuantConnect/Lean/master/Data/market-hours/market-hours-database.json"),
+                    "https://raw.githubusercontent.com/cascade-labs/Lean/master/Data/market-hours/market-hours-database.json"),
                     data_dir / "market-hours" / "market-hours-database.json")
         except MoreInfoError as e:
             if "not found" in str(e):

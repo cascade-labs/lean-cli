@@ -12,6 +12,24 @@
                     "prompt-info": "Use testnet?"
                 },
                 {
+                    "id": "hyperliquid-aws-access-key-id",
+                    "type": "input",
+                    "input-method": "prompt",
+                    "input-default": "",
+                    "optional": true,
+                    "help": "AWS access key ID for Hyperliquid S3 historical data (requester-pays). Leave empty to use REST API only.",
+                    "prompt-info": "AWS Access Key ID (for S3 historical data, optional)"
+                },
+                {
+                    "id": "hyperliquid-aws-secret-access-key",
+                    "type": "input",
+                    "input-method": "prompt-password",
+                    "input-default": "",
+                    "optional": true,
+                    "help": "AWS secret access key for Hyperliquid S3 historical data.",
+                    "prompt-info": "AWS Secret Access Key (for S3 historical data, optional)"
+                },
+                {
                     "filters": [
                         {
                             "condition": {

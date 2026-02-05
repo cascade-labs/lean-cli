@@ -125,14 +125,14 @@ def setup_mock_api_client_and_responses() -> APIClient:
 
     responses.add(
         responses.GET,
-        "https://raw.githubusercontent.com/QuantConnect/Lean/master/Data/symbol-properties/symbol-properties-database.csv",
+        "https://raw.githubusercontent.com/cascade-labs/Lean/master/Data/symbol-properties/symbol-properties-database.csv",
         body="",
         status=200
     )
 
     responses.add(
         responses.GET,
-        "https://raw.githubusercontent.com/QuantConnect/Lean/master/Data/market-hours/market-hours-database.json",
+        "https://raw.githubusercontent.com/cascade-labs/Lean/master/Data/market-hours/market-hours-database.json",
         body="",
         status=200
     )

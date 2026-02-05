@@ -52,7 +52,7 @@ def create_fake_archive(requests_mock: RequestsMock) -> None:
 
     with open(archive_path, "rb") as archive:
         requests_mock.assert_all_requests_are_fired = False
-        requests_mock.add(requests_mock.GET, "https://github.com/QuantConnect/Lean/archive/master.zip", archive.read())
+        requests_mock.add(requests_mock.GET, "https://github.com/cascade-labs/Lean/archive/master.zip", archive.read())
 
 
 @pytest.fixture(autouse=True, scope="function")

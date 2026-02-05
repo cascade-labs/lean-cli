@@ -592,6 +592,13 @@ def backtest(project: Optional[Path],
         lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
         lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader"
         lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider"
+        # Inject AWS credentials for S3 historical data (if configured)
+        hl_aws_key = cli_config_manager.hyperliquid_aws_access_key_id.get_value()
+        hl_aws_secret = cli_config_manager.hyperliquid_aws_secret_access_key.get_value()
+        if hl_aws_key:
+            lean_config["hyperliquid-aws-access-key-id"] = hl_aws_key
+        if hl_aws_secret:
+            lean_config["hyperliquid-aws-secret-access-key"] = hl_aws_secret
     elif data_provider_historical == "Polygon":
         # Polygon is built into custom image - configure data provider, downloader, and auxiliary providers
         lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"

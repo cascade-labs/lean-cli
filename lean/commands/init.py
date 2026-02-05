@@ -34,7 +34,7 @@ def _download_repository(output_path: Path) -> None:
     # We download the entire Lean repository and extract the data and the launcher's config file
     # GitHub doesn't allow downloading a specific directory
     # Since we need ~80% of the total repository in terms of file size this shouldn't be too big of a problem
-    response = container.http_client.get("https://github.com/QuantConnect/Lean/archive/master.zip", stream=True)
+    response = container.http_client.get("https://github.com/cascade-labs/Lean/archive/master.zip", stream=True)
 
     total_size_bytes = int(response.headers.get("content-length", 0))
     print_file_size_at_mb = 10

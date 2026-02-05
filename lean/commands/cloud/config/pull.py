@@ -77,9 +77,18 @@ def pull(name: str, project_id: str, overwrite: bool, merge: bool, dry_run: bool
 
     # Sensitive keys for display masking
     sensitive_keys = [
+        "job-user-id", "api-access-token",
         "thetadata-api-key", "thetadata-auth-token",
         "kalshi-api-key", "kalshi-private-key",
-        "job-user-id", "api-access-token"
+        "tradealert-s3-access-key", "tradealert-s3-secret-key",
+        "polygon-api-key",
+        "hyperliquid-aws-access-key-id", "hyperliquid-aws-secret-access-key",
+        "alpaca-access-token", "ib-password", "oanda-access-token",
+        "tradier-access-token", "tiingo-auth-token", "nasdaq-auth-token",
+        "fxcm-password", "eze-password", "samco-client-password",
+        "tastytrade-password", "zerodha-access-token",
+        "trade-station-refresh-token", "tt-session-password",
+        "us-energy-information-auth-token",
     ]
 
     def format_value(key, value):

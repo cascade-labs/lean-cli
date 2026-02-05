@@ -170,6 +170,16 @@ class CLIConfigManager:
                                       True,
                                       credentials_storage)
 
+        self.hyperliquid_aws_access_key_id = Option("hyperliquid-aws-access-key-id",
+                                                     "The AWS access key ID for Hyperliquid S3 historical data.",
+                                                     True,
+                                                     credentials_storage)
+
+        self.hyperliquid_aws_secret_access_key = Option("hyperliquid-aws-secret-access-key",
+                                                         "The AWS secret access key for Hyperliquid S3 historical data.",
+                                                         True,
+                                                         credentials_storage)
+
         self.all_options = [
             self.user_id,
             self.api_token,
@@ -197,7 +207,9 @@ class CLIConfigManager:
             self.container_registry_namespace,
             self.container_registry_username,
             self.container_registry_token,
-            self.polygon_api_key
+            self.polygon_api_key,
+            self.hyperliquid_aws_access_key_id,
+            self.hyperliquid_aws_secret_access_key
         ]
 
     def get_option_by_key(self, key: str) -> Option:

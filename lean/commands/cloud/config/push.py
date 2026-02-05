@@ -38,6 +38,7 @@ def push(name: str, project_id: str, description: str, dry_run: bool) -> None:
     """
     logger = container.logger
     lean_config_manager = container.lean_config_manager
+    cli_config_manager = container.cli_config_manager
 
     # Get the local lean config
     lean_config_path = lean_config_manager.get_lean_config_path()
@@ -46,11 +47,53 @@ def push(name: str, project_id: str, description: str, dry_run: bool) -> None:
     with open(lean_config_path, "r") as f:
         config_data = json.load(f)
 
-    # Count sensitive keys for user awareness
+    # Merge credentials from CLI credentials storage into the config.
+    # These are stored separately (via `lean config set`) and won't be in lean.json.
+    cli_credentials = {
+        "job-user-id": cli_config_manager.user_id.get_value(),
+        "api-access-token": cli_config_manager.api_token.get_value(),
+        "thetadata-url": cli_config_manager.thetadata_url.get_value(),
+        "thetadata-api-key": cli_config_manager.thetadata_api_key.get_value(),
+        "kalshi-api-key": cli_config_manager.kalshi_api_key.get_value(),
+        "kalshi-private-key": cli_config_manager.kalshi_private_key.get_value(),
+        "tradealert-s3-access-key": cli_config_manager.tradealert_s3_access_key.get_value(),
+        "tradealert-s3-secret-key": cli_config_manager.tradealert_s3_secret_key.get_value(),
+        "tradealert-s3-endpoint": cli_config_manager.tradealert_s3_endpoint.get_value(),
+        "tradealert-s3-bucket": cli_config_manager.tradealert_s3_bucket.get_value(),
+        "tradealert-s3-region": cli_config_manager.tradealert_s3_region.get_value(),
+        "polygon-api-key": cli_config_manager.polygon_api_key.get_value(),
+        "hyperliquid-aws-access-key-id": cli_config_manager.hyperliquid_aws_access_key_id.get_value(),
+        "hyperliquid-aws-secret-access-key": cli_config_manager.hyperliquid_aws_secret_access_key.get_value(),
+        "container-registry": cli_config_manager.container_registry.get_value(),
+        "container-registry-namespace": cli_config_manager.container_registry_namespace.get_value(),
+        "container-registry-username": cli_config_manager.container_registry_username.get_value(),
+        "container-registry-token": cli_config_manager.container_registry_token.get_value(),
+    }
+
+    credentials_merged = 0
+    for key, value in cli_credentials.items():
+        if value and config_data.get(key, "") == "":
+            config_data[key] = value
+            credentials_merged += 1
+
+    if credentials_merged > 0:
+        logger.info(f"Merged {credentials_merged} credential(s) from CLI credentials storage")
+
+    # Identify sensitive keys for user awareness
     sensitive_keys = [
+        "job-user-id", "api-access-token",
         "thetadata-api-key", "thetadata-auth-token",
         "kalshi-api-key", "kalshi-private-key",
-        "job-user-id", "api-access-token"
+        "tradealert-s3-access-key", "tradealert-s3-secret-key",
+        "polygon-api-key",
+        "hyperliquid-aws-access-key-id", "hyperliquid-aws-secret-access-key",
+        "container-registry-token",
+        "alpaca-access-token", "ib-password", "oanda-access-token",
+        "tradier-access-token", "tiingo-auth-token", "nasdaq-auth-token",
+        "fxcm-password", "eze-password", "samco-client-password",
+        "tastytrade-password", "zerodha-access-token",
+        "trade-station-refresh-token", "tt-session-password",
+        "us-energy-information-auth-token",
     ]
     found_sensitive = [k for k in sensitive_keys if k in config_data and config_data.get(k)]
 
@@ -81,7 +124,13 @@ def push(name: str, project_id: str, description: str, dry_run: bool) -> None:
     data_server_client = container.data_server_client
 
     if found_sensitive:
-        logger.info(f"Config includes sensitive keys: {', '.join(found_sensitive)}")
+        logger.info(f"Config includes sensitive keys with values: {', '.join(found_sensitive)}")
+
+    # Warn about empty credential keys so the user knows what's missing
+    empty_sensitive = [k for k in sensitive_keys if k in config_data and not config_data.get(k)]
+    if empty_sensitive:
+        logger.info(f"Warning: {len(empty_sensitive)} credential key(s) are empty: {', '.join(empty_sensitive)}")
+        logger.info("Set these in lean.json or via `lean config set <key> <value>` before pushing")
 
     # Push config
     logger.info(f"Pushing config '{name}' to data server...")
