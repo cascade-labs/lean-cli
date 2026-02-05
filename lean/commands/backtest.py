@@ -33,6 +33,7 @@ _CASCADE_PROVIDER_ALIASES = {
     "thetadata": "CascadeThetaData",
     "kalshi": "CascadeKalshiData",
     "hyper": "Hyperliquid",
+    "polygon": "Polygon",
 }
 
 # Full list of cascade providers (both aliases and full names for backward compatibility)
@@ -591,6 +592,17 @@ def backtest(project: Optional[Path],
         lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
         lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader"
         lean_config["history-provider"] = "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider"
+    elif data_provider_historical == "Polygon":
+        # Polygon is built into custom image - configure data provider, downloader, and auxiliary providers
+        lean_config["data-provider"] = "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider"
+        lean_config["data-downloader"] = "QuantConnect.Lean.DataSource.Polygon.PolygonDataDownloader"
+        lean_config["history-provider"] = "QuantConnect.Lean.DataSource.Polygon.PolygonDataProvider"
+        lean_config["map-file-provider"] = "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider"
+        lean_config["factor-file-provider"] = "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider"
+        # Inject Polygon API key from CLI credentials
+        polygon_api_key = cli_config_manager.polygon_api_key.get_value()
+        if polygon_api_key:
+            lean_config["polygon-api-key"] = polygon_api_key
     else:
         data_provider = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                               cli_data_downloaders, kwargs, logger, environment_name)
