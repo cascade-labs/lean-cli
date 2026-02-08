@@ -232,6 +232,8 @@ def report(backtest_results: Optional[Path],
         }
     }
 
+    run_options["mem_limit"] = "8g"
+
     if css is not None:
         if css.exists():
             run_options["mounts"].append(Mount(target="/Lean/Report/bin/Debug/report_override.css",

@@ -115,35 +115,40 @@ class CLIConfigManager:
                                          True,
                                          credentials_storage)
 
-        self.tradealert_s3_access_key = Option("tradealert-s3-access-key",
-                                               "The TradeAlert S3 access key.",
-                                               True,
-                                               credentials_storage)
+        self.s3_access_key = Option("s3-access-key",
+                                     "The S3 access key.",
+                                     True,
+                                     credentials_storage)
 
-        self.tradealert_s3_secret_key = Option("tradealert-s3-secret-key",
-                                               "The TradeAlert S3 secret key.",
-                                               True,
-                                               credentials_storage)
+        self.s3_secret_key = Option("s3-secret-key",
+                                     "The S3 secret key.",
+                                     True,
+                                     credentials_storage)
 
-        self.tradealert_s3_endpoint = Option("tradealert-s3-endpoint",
-                                             "The TradeAlert S3-compatible endpoint.",
-                                             False,
-                                             general_storage)
+        self.s3_endpoint = Option("s3-endpoint",
+                                   "The S3-compatible endpoint.",
+                                   False,
+                                   general_storage)
 
         self.tradealert_s3_bucket = Option("tradealert-s3-bucket",
                                            "The TradeAlert S3 bucket name.",
                                            False,
                                            general_storage)
 
-        self.tradealert_s3_region = Option("tradealert-s3-region",
-                                           "The TradeAlert S3 region.",
-                                           False,
-                                           general_storage)
+        self.s3_region = Option("s3-region",
+                                 "The S3 region.",
+                                 False,
+                                 general_storage)
 
-        self.lean_storage_bucket = Option("lean-storage-bucket",
-                                          "The bucket name for lean container/CLI storage (uses same S3 credentials as tradealert).",
-                                          False,
-                                          general_storage)
+        self.lean_s3_bucket = Option("lean-s3-bucket",
+                                     "The bucket name for lean container/CLI storage.",
+                                     False,
+                                     general_storage)
+
+        self.hyperliquid_s3_bucket = Option("hyperliquid-s3-bucket",
+                                            "The Hyperliquid S3 bucket name.",
+                                            False,
+                                            general_storage)
 
         self.container_registry = Option("container-registry",
                                          "The container registry endpoint (e.g., iad.ocir.io).",
@@ -202,12 +207,13 @@ class CLIConfigManager:
             self.kalshi_api_key,
             self.kalshi_private_key_path,
             self.kalshi_private_key,
-            self.tradealert_s3_access_key,
-            self.tradealert_s3_secret_key,
-            self.tradealert_s3_endpoint,
+            self.s3_access_key,
+            self.s3_secret_key,
+            self.s3_endpoint,
             self.tradealert_s3_bucket,
-            self.tradealert_s3_region,
-            self.lean_storage_bucket,
+            self.s3_region,
+            self.lean_s3_bucket,
+            self.hyperliquid_s3_bucket,
             self.container_registry,
             self.container_registry_namespace,
             self.container_registry_username,

@@ -223,12 +223,11 @@ class Container:
     def s3_storage_client(self) -> Optional[S3StorageClient]:
         """Returns the S3 storage client for lean container/CLI storage."""
         if self._s3_storage_client is None:
-            endpoint = self.cli_config_manager.tradealert_s3_endpoint.get_value()
-            # Use lean-storage-bucket for container/CLI storage, separate from tradealert bucket
-            bucket = self.cli_config_manager.lean_storage_bucket.get_value()
-            access_key = self.cli_config_manager.tradealert_s3_access_key.get_value()
-            secret_key = self.cli_config_manager.tradealert_s3_secret_key.get_value()
-            region = self.cli_config_manager.tradealert_s3_region.get_value() or "us-ashburn-1"
+            endpoint = self.cli_config_manager.s3_endpoint.get_value()
+            bucket = self.cli_config_manager.lean_s3_bucket.get_value()
+            access_key = self.cli_config_manager.s3_access_key.get_value()
+            secret_key = self.cli_config_manager.s3_secret_key.get_value()
+            region = self.cli_config_manager.s3_region.get_value() or "us-ashburn-1"
 
             if endpoint and bucket and access_key and secret_key:
                 self._s3_storage_client = S3StorageClient(

@@ -11,8 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest import mock
-
 from click.testing import CliRunner
 
 from lean.commands import lean
@@ -20,53 +18,51 @@ from lean.container import container
 from tests.conftest import initialize_container
 
 
-def test_login_logs_in_with_options_when_given() -> None:
-    api_client = mock.Mock()
-    api_client.is_authenticated.return_value = True
-    initialize_container(api_client_to_use=api_client)
+def test_login_with_options() -> None:
+    initialize_container()
 
-    result = CliRunner().invoke(lean, ["login", "--user-id", "123", "--api-token", "456"])
+    result = CliRunner().invoke(lean, ["login", "--url", "http://localhost:5067", "--api-key", "test-key"])
 
     assert result.exit_code == 0
+    assert container.cli_config_manager.data_server_url.get_value() == "http://localhost:5067"
+    assert container.cli_config_manager.data_server_api_key.get_value() == "test-key"
 
-    assert container.cli_config_manager.user_id.get_value() == "123"
-    assert container.cli_config_manager.api_token.get_value() == "456"
 
+def test_login_prompts_for_url_when_not_given() -> None:
+    initialize_container()
 
-def test_login_prompts_when_user_id_not_given() -> None:
-    api_client = mock.Mock()
-    api_client.is_authenticated.return_value = True
-    initialize_container(api_client_to_use=api_client)
-    result = CliRunner().invoke(lean, ["login", "--api-token", "456"], input="123\n")
+    result = CliRunner().invoke(lean, ["login", "--api-key", "test-key"], input="\n")
 
     assert result.exit_code == 0
-    assert "User id:" in result.output
+    assert "Data server URL" in result.output
+    assert container.cli_config_manager.data_server_url.get_value() == "http://0.0.0.0:5067"
+    assert container.cli_config_manager.data_server_api_key.get_value() == "test-key"
 
-    assert container.cli_config_manager.user_id.get_value() == "123"
-    assert container.cli_config_manager.api_token.get_value() == "456"
 
+def test_login_prompts_for_api_key_when_not_given() -> None:
+    initialize_container()
 
-def test_login_prompts_when_api_token_not_given() -> None:
-    api_client = mock.Mock()
-    api_client.is_authenticated.return_value = True
-    initialize_container(api_client_to_use=api_client)
-    result = CliRunner().invoke(lean, ["login", "--user-id", "123"], input="456\n")
+    result = CliRunner().invoke(lean, ["login", "--url", "http://localhost:5067"], input="my-api-key\n")
 
     assert result.exit_code == 0
-    assert "API token:" in result.output
+    assert "API key" in result.output
+    assert container.cli_config_manager.data_server_url.get_value() == "http://localhost:5067"
+    assert container.cli_config_manager.data_server_api_key.get_value() == "my-api-key"
 
-    assert container.cli_config_manager.user_id.get_value() == "123"
-    assert container.cli_config_manager.api_token.get_value() == "456"
+
+def test_login_sets_default_user_id() -> None:
+    initialize_container()
+
+    result = CliRunner().invoke(lean, ["login", "--url", "http://localhost:5067", "--api-key", "test-key"])
+
+    assert result.exit_code == 0
+    assert container.cli_config_manager.user_id.get_value() == "0"
 
 
-def test_login_aborts_when_credentials_are_invalid() -> None:
-    api_client = mock.Mock()
-    api_client.is_authenticated.return_value = False
-    initialize_container(api_client_to_use=api_client)
+def test_login_sets_placeholder_api_token() -> None:
+    initialize_container()
 
-    result = CliRunner().invoke(lean, ["login", "--user-id", "123", "--api-token", "456"])
+    result = CliRunner().invoke(lean, ["login", "--url", "http://localhost:5067", "--api-key", "test-key"])
 
-    assert result.exit_code != 0
-
-    assert container.cli_config_manager.user_id.get_value() is None
-    assert container.cli_config_manager.api_token.get_value() is None
+    assert result.exit_code == 0
+    assert container.cli_config_manager.api_token.get_value() == "placeholder"

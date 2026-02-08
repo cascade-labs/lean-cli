@@ -613,3 +613,20 @@ def test_report_runs_custom_image_when_given_as_option() -> None:
     args, kwargs = docker_manager.run_image.call_args
 
     assert args[0] == DockerImage(name="custom/lean", tag="456")
+
+
+def test_report_sets_default_memory_limit() -> None:
+    docker_manager = mock.Mock()
+    docker_manager.run_image.side_effect = run_image
+    initialize_container(docker_manager_to_use=docker_manager)
+
+    result = CliRunner().invoke(lean, ["report",
+                                       "--backtest-results",
+                                       "Python Project/backtests/2020-01-01_00-00-00/1459804915.json"])
+
+    assert result.exit_code == 0
+
+    docker_manager.run_image.assert_called_once()
+    args, kwargs = docker_manager.run_image.call_args
+
+    assert kwargs["mem_limit"] == "8g"

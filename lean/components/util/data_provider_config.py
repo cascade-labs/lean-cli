@@ -58,7 +58,7 @@ def get_cascade_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
             "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider",
             "data-downloader": "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader",
             "history-provider": "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider",
-            "map-file-provider": "QuantConnect.Data.Auxiliary.IdentityMapFileProvider",
+            "map-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskMapFileProvider",
         }
     elif provider_name == "Hyperliquid":
         return {
@@ -71,11 +71,7 @@ def get_cascade_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
             "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider",
             "data-downloader": "QuantConnect.Lean.DataSource.Polygon.PolygonDataDownloader",
             "history-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonDataProvider",
-            # TEMPORARILY using identity providers for control test (no split/dividend adjustments)
-            "map-file-provider": "QuantConnect.Data.Auxiliary.IdentityMapFileProvider",
-            "factor-file-provider": "QuantConnect.Data.Auxiliary.IdentityFactorFileProvider",
-            # Original providers:
-            # "map-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider",
-            # "factor-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider",
+            "map-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider",
+            "factor-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider",
         }
     return None

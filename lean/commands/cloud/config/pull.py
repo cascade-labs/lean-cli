@@ -80,7 +80,7 @@ def pull(name: str, project_id: str, overwrite: bool, merge: bool, dry_run: bool
         "job-user-id", "api-access-token",
         "thetadata-api-key", "thetadata-auth-token",
         "kalshi-api-key", "kalshi-private-key",
-        "tradealert-s3-access-key", "tradealert-s3-secret-key",
+        "s3-access-key", "s3-secret-key",
         "polygon-api-key",
         "hyperliquid-aws-access-key-id", "hyperliquid-aws-secret-access-key",
         "alpaca-access-token", "ib-password", "oanda-access-token",
