@@ -73,5 +73,6 @@ def get_cascade_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
             "history-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonDataProvider",
             "map-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider",
             "factor-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider",
+            "fundamental-data-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonUniverseDataProvider",
         }
     return None
