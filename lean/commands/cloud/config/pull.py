@@ -104,7 +104,8 @@ def pull(name: str, project_id: str, overwrite: bool, merge: bool, dry_run: bool
             return str(value)
 
     # Show diff
-    if added_keys or removed_keys or modified_keys:
+    has_changes = bool(added_keys or removed_keys or modified_keys)
+    if has_changes:
         logger.info("\nChanges from server config:")
 
         if added_keys:
@@ -125,28 +126,67 @@ def pull(name: str, project_id: str, overwrite: bool, merge: bool, dry_run: bool
                 logger.info(f"    - {key}: {format_value(key, local_config[key])}")
     else:
         logger.info("\nNo changes - local config matches server config")
-        return
 
     if dry_run:
         logger.info("\n[DRY RUN] No changes made")
         return
 
-    if not overwrite and not merge:
+    if has_changes and not overwrite and not merge:
         logger.info("\nUse --overwrite or --merge to apply changes")
         return
 
-    # Apply changes
-    if overwrite:
-        new_config = server_config
-        logger.info("\nOverwriting local config with server config...")
-    else:  # merge
-        new_config = local_config.copy()
-        new_config.update(server_config)
-        logger.info("\nMerging server config into local (server wins conflicts)...")
+    # Apply changes to lean.json if needed
+    if has_changes:
+        if overwrite:
+            new_config = server_config
+            logger.info("\nOverwriting local config with server config...")
+        else:  # merge
+            new_config = local_config.copy()
+            new_config.update(server_config)
+            logger.info("\nMerging server config into local (server wins conflicts)...")
 
-    # Write updated config
-    with open(lean_config_path, "w") as f:
-        json.dump(new_config, f, indent=4)
+        with open(lean_config_path, "w") as f:
+            json.dump(new_config, f, indent=4)
 
-    logger.info(f"Updated {lean_config_path}")
+        logger.info(f"Updated {lean_config_path}")
+    else:
+        new_config = local_config
+
+    # Always sync CLI-managed keys back to ~/.lean/config and ~/.lean/credentials.
+    # The push command merges these INTO lean.json before uploading, so we need
+    # to extract them back out on pull.
+    cli_config_manager = container.cli_config_manager
+
+    cli_key_mapping = {
+        "job-user-id": cli_config_manager.user_id,
+        "api-access-token": cli_config_manager.api_token,
+        "thetadata-url": cli_config_manager.thetadata_url,
+        "thetadata-api-key": cli_config_manager.thetadata_api_key,
+        "kalshi-api-key": cli_config_manager.kalshi_api_key,
+        "kalshi-private-key": cli_config_manager.kalshi_private_key,
+        "s3-access-key": cli_config_manager.s3_access_key,
+        "s3-secret-key": cli_config_manager.s3_secret_key,
+        "s3-endpoint": cli_config_manager.s3_endpoint,
+        "tradealert-s3-bucket": cli_config_manager.tradealert_s3_bucket,
+        "s3-region": cli_config_manager.s3_region,
+        "polygon-api-key": cli_config_manager.polygon_api_key,
+        "hyperliquid-aws-access-key-id": cli_config_manager.hyperliquid_aws_access_key_id,
+        "hyperliquid-aws-secret-access-key": cli_config_manager.hyperliquid_aws_secret_access_key,
+        "container-registry": cli_config_manager.container_registry,
+        "container-registry-namespace": cli_config_manager.container_registry_namespace,
+        "container-registry-username": cli_config_manager.container_registry_username,
+        "container-registry-token": cli_config_manager.container_registry_token,
+        "security-data-feeds": cli_config_manager.security_data_feeds,
+    }
+
+    cli_synced = 0
+    for config_key, cli_option in cli_key_mapping.items():
+        value = new_config.get(config_key)
+        if value and str(value).strip():
+            cli_option.set_value(str(value))
+            cli_synced += 1
+
+    if cli_synced > 0:
+        logger.info(f"Synced {cli_synced} key(s) to CLI config (~/.lean/config and ~/.lean/credentials)")
+
     logger.info(f"Total keys: {len(new_config)}")
