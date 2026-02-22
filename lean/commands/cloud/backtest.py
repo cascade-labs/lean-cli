@@ -130,17 +130,29 @@ def _run_cascade_backtest(
             raise RuntimeError(f"Project directory '{project}' not found")
 
     # Get project from data server
-    try:
-        data_server_project = data_server_client.get_project_by_name(project)
-    except Exception as e:
-        # Try to get by ID if name lookup fails
+    # If we just pushed, use the data-server-id from project config (set by push)
+    data_server_project = None
+    project_path = Path.cwd() / project
+    project_config_manager = container.project_config_manager
+    if project_config_manager.try_get_project_config(project_path):
+        data_server_id = project_config_manager.get_project_config(project_path).get("data-server-id")
+        if data_server_id is not None:
+            try:
+                data_server_project = data_server_client.get_project(data_server_id)
+            except Exception:
+                pass
+
+    if data_server_project is None:
         try:
-            data_server_project = data_server_client.get_project(project)
-        except Exception:
-            raise RuntimeError(
-                f'No project with the given name or id "{project}" found in the data server. '
-                f"Use --push to push your local project first."
-            ) from e
+            data_server_project = data_server_client.get_project_by_name(project)
+        except Exception as e:
+            try:
+                data_server_project = data_server_client.get_project(project)
+            except Exception:
+                raise RuntimeError(
+                    f'No project with the given name or id "{project}" found in the data server. '
+                    f"Use --push to push your local project first."
+                ) from e
 
     project_id = data_server_project.id
     logger.info(f"Found project '{data_server_project.name}' (id: {project_id})")
@@ -151,6 +163,20 @@ def _run_cascade_backtest(
 
     # Get provider config associations so the server knows which modules to use
     provider_config = get_cascade_provider_config(data_provider_historical) if data_provider_historical else None
+
+    # Read all credentials from local lean config and include them so the
+    # cloud worker has every key it needs (S3 credentials, API keys, etc.).
+    lean_config_manager = container.lean_config_manager
+    try:
+        lean_config = lean_config_manager.get_lean_config()
+    except Exception:
+        lean_config = {}
+    if lean_config:
+        if provider_config is None:
+            provider_config = {}
+        for key, value in lean_config.items():
+            if isinstance(value, str) and value and key not in provider_config:
+                provider_config[key] = value
 
     # Create backtest job
     logger.info(f"Creating backtest '{name}'...")

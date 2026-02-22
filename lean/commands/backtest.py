@@ -572,6 +572,18 @@ def backtest(project: Optional[Path],
             polygon_api_key = cli_config_manager.polygon_api_key.get_value()
             if polygon_api_key:
                 lean_config["polygon-api-key"] = polygon_api_key
+            polygon_s3_endpoint = cli_config_manager.polygon_s3_endpoint.get_value()
+            polygon_s3_access_key = cli_config_manager.polygon_s3_access_key.get_value()
+            polygon_s3_secret_key = cli_config_manager.polygon_s3_secret_key.get_value()
+            polygon_s3_bucket = cli_config_manager.polygon_s3_bucket.get_value()
+            if polygon_s3_endpoint:
+                lean_config["polygon-s3-endpoint"] = polygon_s3_endpoint
+            if polygon_s3_access_key:
+                lean_config["polygon-s3-access-key"] = polygon_s3_access_key
+            if polygon_s3_secret_key:
+                lean_config["polygon-s3-secret-key"] = polygon_s3_secret_key
+            if polygon_s3_bucket:
+                lean_config["polygon-s3-bucket"] = polygon_s3_bucket
     else:
         data_provider = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                               cli_data_downloaders, kwargs, logger, environment_name)

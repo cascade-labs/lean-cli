@@ -13,6 +13,7 @@
 
 from pathlib import Path
 from typing import List, Dict, Optional
+from time import sleep
 
 from lean.components.api.data_server_client import DataServerClient
 from lean.components.config.project_config_manager import ProjectConfigManager
@@ -46,7 +47,9 @@ class DataServerPushManager:
 
         :param project: path to the directory containing the local project that needs to be pushed
         """
-        self.push_projects([project])
+        relative_path = project.relative_to(Path.cwd())
+        self._logger.info(f"[1/1] Pushing '{relative_path}'")
+        self._push_project(project)
 
     def push_projects(self, projects_to_push: List[Path]) -> None:
         """Pushes the given projects from the local drive to the data server.
@@ -82,6 +85,26 @@ class DataServerPushManager:
         ]
         return files
 
+    @staticmethod
+    def _is_missing_project_error(error: RequestFailedError) -> bool:
+        """Returns True when an API error indicates a missing project."""
+        status_code = getattr(error.response, "status_code", None)
+        if status_code == 404:
+            return True
+
+        response_text = str(getattr(error.response, "text", "") or "").lower()
+        return ("no project with the given name or id" in response_text
+                or "project not found" in response_text)
+
+    @staticmethod
+    def _response_text(error: RequestFailedError) -> str:
+        return str(getattr(error.response, "text", "") or "").strip()
+
+    @staticmethod
+    def _is_transient_schema_cache_error(error: RequestFailedError) -> bool:
+        response_text = DataServerPushManager._response_text(error).lower()
+        return "pgrst002" in response_text or "schema cache" in response_text
+
     def _push_project(self, project_path: Path) -> None:
         """Pushes a single local project to the data server.
 
@@ -110,21 +133,72 @@ class DataServerPushManager:
                 )
                 self._logger.info(f"Successfully updated '{project_name}' in data server")
             except RequestFailedError as e:
-                if "404" in str(e) or "not found" in str(e).lower():
+                if self._is_missing_project_error(e):
                     # Project was deleted from server, create a new one
                     self._logger.info(f"Project '{project_name}' not found in data server, creating new...")
                     data_server_id = None
                 else:
-                    raise
+                    # Some servers can return generic 5xx errors for missing IDs.
+                    # If the project ID can no longer be fetched, recover by creating a new project.
+                    try:
+                        self._data_server_client.get_project(data_server_id)
+                    except RequestFailedError:
+                        self._logger.info(f"Project '{project_name}' could not be retrieved from data server, creating new...")
+                        data_server_id = None
+                    else:
+                        raise
 
         if data_server_id is None:
             # Create new project in data server
-            cloud_project = self._data_server_client.create_project(
-                name=project_name,
-                files=files,
-                description=description,
-                algorithm_language=algorithm_language,
-                parameters=parameters
-            )
+            create_error = None
+            cloud_project = None
+            for attempt in range(1, 4):
+                try:
+                    cloud_project = self._data_server_client.create_project(
+                        name=project_name,
+                        files=files,
+                        description=description,
+                        algorithm_language=algorithm_language,
+                        parameters=parameters
+                    )
+                    break
+                except RequestFailedError as error:
+                    create_error = error
+                    if not self._is_transient_schema_cache_error(error) or attempt == 3:
+                        break
+
+                    self._logger.warn(
+                        f"Create project failed with a transient server error (attempt {attempt}/3). Retrying..."
+                    )
+                    sleep(1.5 * attempt)
+
+            if cloud_project is None:
+                # Some servers may return 5xx for duplicate names or partial creates.
+                # If a project with this name exists, update it instead.
+                existing_project = None
+                try:
+                    existing_project = self._data_server_client.get_project_by_name(project_name)
+                except RequestFailedError:
+                    try:
+                        projects = self._data_server_client.list_projects()
+                        existing_project = next((project for project in projects if project.name == project_name), None)
+                    except RequestFailedError:
+                        existing_project = None
+
+                if existing_project is None:
+                    response_text = self._response_text(create_error)
+                    if response_text:
+                        raise RuntimeError(f"{create_error}\nServer response: {response_text}")
+                    raise create_error
+
+                self._logger.info(f"Project '{project_name}' already exists in data server, updating existing project...")
+                cloud_project = self._data_server_client.update_project(
+                    existing_project.id,
+                    files=files,
+                    description=description,
+                    algorithm_language=algorithm_language,
+                    parameters=parameters
+                )
+
             project_config.set("data-server-id", cloud_project.id)
             self._logger.info(f"Successfully created '{project_name}' in data server")

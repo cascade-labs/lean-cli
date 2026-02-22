@@ -175,6 +175,26 @@ class CLIConfigManager:
                                       True,
                                       credentials_storage)
 
+        self.polygon_s3_endpoint = Option("polygon-s3-endpoint",
+                                          "The S3 endpoint for Polygon flat files (e.g., files.massive.com).",
+                                          False,
+                                          general_storage)
+
+        self.polygon_s3_access_key = Option("polygon-s3-access-key",
+                                            "The S3 access key for Polygon flat files.",
+                                            True,
+                                            credentials_storage)
+
+        self.polygon_s3_secret_key = Option("polygon-s3-secret-key",
+                                            "The S3 secret key for Polygon flat files.",
+                                            True,
+                                            credentials_storage)
+
+        self.polygon_s3_bucket = Option("polygon-s3-bucket",
+                                        "The S3 bucket name for Polygon flat files.",
+                                        False,
+                                        general_storage)
+
         self.hyperliquid_aws_access_key_id = Option("hyperliquid-aws-access-key-id",
                                                      "The AWS access key ID for Hyperliquid S3 historical data.",
                                                      True,
@@ -219,6 +239,10 @@ class CLIConfigManager:
             self.container_registry_username,
             self.container_registry_token,
             self.polygon_api_key,
+            self.polygon_s3_endpoint,
+            self.polygon_s3_access_key,
+            self.polygon_s3_secret_key,
+            self.polygon_s3_bucket,
             self.hyperliquid_aws_access_key_id,
             self.hyperliquid_aws_secret_access_key,
             self.security_data_feeds
