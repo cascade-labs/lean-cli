@@ -244,6 +244,23 @@ def deploy(project: Path,
     cascade_config = get_cascade_provider_config(data_provider_historical)
     if cascade_config is not None:
         lean_config.update(cascade_config)
+        # Inject credentials from CLI storage for cascade providers
+        cli_config_manager = container.cli_config_manager
+        if data_provider_historical == "ThetaData":
+            thetadata_url = cli_config_manager.thetadata_url.get_value() or "https://thetadata.cascadelabs.io"
+            lean_config["thetadata-url"] = thetadata_url
+            ws_url = thetadata_url.replace("https://", "wss://").replace("http://", "ws://")
+            if not ws_url.endswith("/v1/events"):
+                ws_url = ws_url.rstrip("/") + "/v1/events"
+            lean_config["thetadata-ws-url"] = ws_url
+            lean_config["thetadata-subscription-plan"] = "Standard"
+            thetadata_api_key = cli_config_manager.thetadata_api_key.get_value()
+            if thetadata_api_key:
+                lean_config["thetadata-auth-token"] = thetadata_api_key
+        if data_provider_historical in ("Polygon", "ThetaData"):
+            polygon_api_key = cli_config_manager.polygon_api_key.get_value()
+            if polygon_api_key:
+                lean_config["polygon-api-key"] = polygon_api_key
     else:
         data_downloader_instances = non_interactive_config_build_for_name(lean_config, data_provider_historical,
                                                                           cli_data_downloaders, kwargs, logger,

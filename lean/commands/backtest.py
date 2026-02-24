@@ -507,7 +507,7 @@ def backtest(project: Optional[Path],
     data_provider_historical = normalize_data_provider_historical(data_provider_historical)
 
     # Inject ThetaData configuration when that provider is explicitly selected
-    if data_provider_historical == "CascadeThetaData":
+    if data_provider_historical == "ThetaData":
         # Default cascadelabs ThetaData endpoints
         default_rest_url = "https://thetadata.cascadelabs.io"
         default_ws_url = "wss://thetadata.cascadelabs.io/v1/events"
@@ -568,7 +568,9 @@ def backtest(project: Optional[Path],
                 lean_config["hyperliquid-aws-access-key-id"] = hl_aws_key
             if hl_aws_secret:
                 lean_config["hyperliquid-aws-secret-access-key"] = hl_aws_secret
-        elif data_provider_historical == "Polygon":
+        # Inject Polygon credentials when Polygon is the primary provider OR when
+        # ThetaData uses Polygon for map/factor file providers
+        if data_provider_historical in ("Polygon", "ThetaData"):
             polygon_api_key = cli_config_manager.polygon_api_key.get_value()
             if polygon_api_key:
                 lean_config["polygon-api-key"] = polygon_api_key

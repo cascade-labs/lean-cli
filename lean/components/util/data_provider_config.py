@@ -17,19 +17,19 @@ from typing import Dict, Optional
 # Simplified aliases for Cascade data providers
 # Note: "hyper" maps to "Hyperliquid" which is handled by cascade-modules.json
 CASCADE_PROVIDER_ALIASES = {
-    "thetadata": "CascadeThetaData",
-    "kalshi": "CascadeKalshiData",
+    "thetadata": "ThetaData",
+    "kalshi": "KalshiData",
     "hyper": "Hyperliquid",
     "polygon": "Polygon",
 }
 
 # Full list of cascade providers (both aliases and full names for backward compatibility)
 # Hyperliquid is already in cli_data_downloaders via cascade-modules.json, so "hyper" is just an alias
-CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "CascadeThetaData", "CascadeKalshiData"]
+CASCADE_PROVIDERS = ["thetadata", "kalshi", "hyper", "ThetaData", "KalshiData"]
 
 
 def normalize_data_provider_historical(name: str) -> str:
-    """Normalize aliases like 'thetadata' -> 'CascadeThetaData'.
+    """Normalize aliases like 'thetadata' -> 'ThetaData'.
 
     :param name: the provider name or alias
     :return: the normalized provider name
@@ -42,29 +42,31 @@ def get_cascade_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
 
     This is the single source of truth for all commands (backtest, live, research, optimize, cloud backtest).
 
-    :param provider_name: the normalized provider name (e.g. "CascadeThetaData", not "thetadata")
+    :param provider_name: the normalized provider name (e.g. "ThetaData", not "thetadata")
     :return: dict with lean config keys, or None for non-Cascade providers
     """
-    if provider_name == "CascadeThetaData":
+    if provider_name == "ThetaData":
         return {
             "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider",
-            "data-downloader": "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataDownloader",
-            "history-provider": "QuantConnect.Lean.DataSource.CascadeThetaData.CascadeThetaDataProvider",
-            "map-file-provider": "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataMapFileProvider",
-            "factor-file-provider": "QuantConnect.Lean.DataSource.CascadeThetaData.ThetaDataFactorFileProvider",
+            "data-downloader": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataDownloader",
+            "history-provider": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataProvider",
+            # ThetaData returns unadjusted prices — use Polygon for split/dividend factors and ticker mappings
+            "map-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider",
+            "factor-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider",
+            "option-chain-provider": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataOptionChainProvider",
         }
-    elif provider_name == "CascadeKalshiData":
+    elif provider_name == "KalshiData":
         return {
             "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider",
-            "data-downloader": "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataDownloader",
-            "history-provider": "QuantConnect.Lean.DataSource.CascadeKalshiData.CascadeKalshiDataProvider",
+            "data-downloader": "QuantConnect.Lean.DataSource.KalshiData.KalshiDataDownloader",
+            "history-provider": "QuantConnect.Lean.DataSource.KalshiData.KalshiDataProvider",
             "map-file-provider": "QuantConnect.Data.Auxiliary.LocalDiskMapFileProvider",
         }
     elif provider_name == "Hyperliquid":
         return {
             "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider",
-            "data-downloader": "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader",
-            "history-provider": "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider",
+            "data-downloader": "QuantConnect.Lean.DataSource.HyperliquidData.HyperliquidDataDownloader",
+            "history-provider": "QuantConnect.Lean.DataSource.HyperliquidData.HyperliquidHistoryProvider",
         }
     elif provider_name == "Polygon":
         return {
