@@ -507,7 +507,7 @@ def backtest(project: Optional[Path],
     data_provider_historical = normalize_data_provider_historical(data_provider_historical)
 
     # Inject ThetaData configuration when that provider is explicitly selected
-    if data_provider_historical == "CascadeThetaData":
+    if data_provider_historical == "ThetaData":
         # Default cascadelabs ThetaData endpoints
         default_rest_url = "https://thetadata.cascadelabs.io"
         default_ws_url = "wss://thetadata.cascadelabs.io/v1/events"

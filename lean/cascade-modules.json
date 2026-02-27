@@ -55,7 +55,7 @@
                     ],
                     "id": "data-downloader",
                     "type": "info",
-                    "value": "QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidDataDownloader"
+                    "value": "QuantConnect.Lean.DataSource.HyperliquidData.HyperliquidDataDownloader"
                 },
                 {
                     "filters": [
@@ -69,7 +69,7 @@
                     ],
                     "id": "history-provider",
                     "type": "info",
-                    "value": "[\"QuantConnect.Lean.DataSource.CascadeHyperliquid.HyperliquidHistoryProvider\"]"
+                    "value": "[\"QuantConnect.Lean.DataSource.HyperliquidData.HyperliquidHistoryProvider\"]"
                 }
             ],
             "display-id": "Hyperliquid",
