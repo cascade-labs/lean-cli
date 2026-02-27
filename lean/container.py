@@ -195,6 +195,12 @@ class Container:
                 )
         return self._data_server_client
 
+    def reset_data_server_clients(self) -> None:
+        """Resets cached data server clients/managers so updated credentials are used."""
+        self._data_server_client = None
+        self._data_server_push_manager = None
+        self._data_server_pull_manager = None
+
     @property
     def data_server_push_manager(self) -> Optional[DataServerPushManager]:
         """Returns the data server push manager, creating it if needed."""

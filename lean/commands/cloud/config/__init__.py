@@ -12,8 +12,12 @@
 # limitations under the License.
 
 from lean.commands.cloud.config.config import config
+from lean.commands.cloud.config.list import list
 from lean.commands.cloud.config.push import push
 from lean.commands.cloud.config.pull import pull
+from lean.commands.cloud.config.set import set
 
+config.add_command(list)
+config.add_command(set)
 config.add_command(push)
 config.add_command(pull)

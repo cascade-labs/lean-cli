@@ -78,3 +78,35 @@ def test_get_research_image_returns_override_when_given() -> None:
     cli_config_manager.research_image.set_value("custom/research:3")
 
     assert cli_config_manager.get_research_image("custom/research:5") == DockerImage(name="custom/research", tag="5")
+
+
+def test_bootstraps_default_data_server_profile_from_existing_credentials() -> None:
+    general_storage = create_storage()
+    credentials_storage = create_storage()
+    cli_config_manager = CLIConfigManager(general_storage, credentials_storage)
+    cli_config_manager.data_server_url.set_value("https://data.example.com")
+    cli_config_manager.data_server_api_key.set_value("abc123")
+
+    profiles = cli_config_manager.list_data_server_profiles()
+
+    assert "default" in profiles
+    assert profiles["default"]["data-server-url"] == "https://data.example.com"
+    assert profiles["default"]["data-server-api-key"] == "abc123"
+    assert profiles["default"]["config-name"] == "default"
+
+
+def test_set_active_data_server_profile_applies_url_and_api_key() -> None:
+    cli_config_manager = CLIConfigManager(create_storage(), create_storage())
+    cli_config_manager.upsert_data_server_profile(
+        "dev",
+        data_server_url="http://0.0.0.0:5067",
+        data_server_api_key="TEST",
+        config_name="dev"
+    )
+
+    cli_config_manager.set_active_data_server_profile("dev")
+
+    assert cli_config_manager.get_active_data_server_profile_name() == "dev"
+    assert cli_config_manager.data_server_url.get_value() == "http://0.0.0.0:5067"
+    assert cli_config_manager.data_server_api_key.get_value() == "TEST"
+    assert cli_config_manager.get_active_cloud_config_name() == "dev"

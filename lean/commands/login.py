@@ -59,6 +59,9 @@ def login(url: Optional[str],
 
     cli_config_manager.data_server_url.set_value(url)
     cli_config_manager.data_server_api_key.set_value(api_key)
+    cli_config_manager.upsert_data_server_profile("default", data_server_url=url, data_server_api_key=api_key, config_name="default")
+    cli_config_manager.set_active_data_server_profile("default")
+    container.reset_data_server_clients()
 
     logger.info(f"Successfully configured data server: {url}")
     logger.info("Run `lean cloud config pull` to pull additional configuration from the server.")
