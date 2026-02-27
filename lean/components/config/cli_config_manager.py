@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from lean.components.config.storage import Storage
 from lean.constants import DEFAULT_ENGINE_IMAGE, DEFAULT_RESEARCH_IMAGE
@@ -29,6 +29,9 @@ class CLIConfigManager:
         :param general_storage: the Storage instance for general, non-sensitive options
         :param credentials_storage: the Storage instance for credentials
         """
+        self._general_storage = general_storage
+        self._credentials_storage = credentials_storage
+
         self.user_id = Option("user-id",
                               "The user id used when making authenticated requests to the QuantConnect API.",
                               True,
@@ -247,6 +250,91 @@ class CLIConfigManager:
             self.hyperliquid_aws_secret_access_key,
             self.security_data_feeds
         ]
+
+    def _get_data_server_profiles(self) -> Dict[str, Dict[str, str]]:
+        """Returns configured data server profiles, bootstrapping default if needed."""
+        profiles = self._credentials_storage.get("data-server-profiles", {})
+        if not isinstance(profiles, dict):
+            profiles = {}
+
+        if "default" not in profiles:
+            profiles["default"] = {
+                "data-server-url": self.data_server_url.get_value() or "",
+                "data-server-api-key": self.data_server_api_key.get_value() or "",
+                "config-name": "default"
+            }
+            self._credentials_storage.set("data-server-profiles", profiles)
+
+        return profiles
+
+    def list_data_server_profiles(self) -> Dict[str, Dict[str, str]]:
+        """Returns all configured data server profiles."""
+        return self._get_data_server_profiles()
+
+    def get_active_data_server_profile_name(self) -> str:
+        """Returns the active data server profile name."""
+        active = self._general_storage.get("data-server-profile", "default")
+        profiles = self._get_data_server_profiles()
+        if active not in profiles:
+            active = "default"
+            self._general_storage.set("data-server-profile", active)
+        return active
+
+    def get_data_server_profile(self, name: str) -> Dict[str, str]:
+        """Returns a named data server profile."""
+        profiles = self._get_data_server_profiles()
+        if name not in profiles:
+            raise ValueError(f"Profile '{name}' does not exist")
+        return profiles[name]
+
+    def get_active_data_server_profile(self) -> Dict[str, str]:
+        """Returns the currently active data server profile."""
+        return self.get_data_server_profile(self.get_active_data_server_profile_name())
+
+    def upsert_data_server_profile(self,
+                                   name: str,
+                                   data_server_url: Optional[str] = None,
+                                   data_server_api_key: Optional[str] = None,
+                                   config_name: Optional[str] = None) -> Dict[str, str]:
+        """Creates or updates a data server profile."""
+        if name == "":
+            raise ValueError("Profile name cannot be empty")
+
+        profiles = self._get_data_server_profiles()
+        current = profiles.get(name, {})
+
+        if data_server_url is not None:
+            current["data-server-url"] = data_server_url
+        if data_server_api_key is not None:
+            current["data-server-api-key"] = data_server_api_key
+        if config_name is not None:
+            current["config-name"] = config_name
+
+        if "config-name" not in current:
+            current["config-name"] = "default" if name == "default" else name
+
+        profiles[name] = current
+        self._credentials_storage.set("data-server-profiles", profiles)
+        return current
+
+    def set_active_data_server_profile(self, name: str) -> Dict[str, str]:
+        """Sets the active data server profile and applies its URL/API key options."""
+        profile = self.get_data_server_profile(name)
+        self._general_storage.set("data-server-profile", name)
+
+        profile_url = profile.get("data-server-url", "")
+        profile_api_key = profile.get("data-server-api-key", "")
+        if profile_url:
+            self.data_server_url.set_value(profile_url)
+        if profile_api_key:
+            self.data_server_api_key.set_value(profile_api_key)
+
+        return profile
+
+    def get_active_cloud_config_name(self) -> str:
+        """Returns the cloud config name associated with the active profile."""
+        profile = self.get_active_data_server_profile()
+        return profile.get("config-name", "default")
 
     def get_option_by_key(self, key: str) -> Option:
         """Returns the option matching the given key.

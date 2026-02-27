@@ -19,8 +19,8 @@ from lean.container import container
 
 
 @command(cls=LeanCommand, requires_lean_config=True)
-@option("--name", type=str, default="default",
-        help="Config name to pull (default: 'default')")
+@option("--name", type=str, default=None,
+        help="Config name to pull (defaults to active profile's cloud-config)")
 @option("--project-id", type=str, default=None,
         help="Project UUID (falls back to global if not found)")
 @option("--overwrite", is_flag=True, default=False,
@@ -38,6 +38,13 @@ def pull(name: str, project_id: str, overwrite: bool, merge: bool, dry_run: bool
     """
     logger = container.logger
     lean_config_manager = container.lean_config_manager
+    cli_config_manager = container.cli_config_manager
+
+    active_profile = cli_config_manager.get_active_data_server_profile_name()
+    profile_data = cli_config_manager.set_active_data_server_profile(active_profile)
+    container.reset_data_server_clients()
+    if name is None:
+        name = profile_data.get("config-name", "default")
 
     if overwrite and merge:
         raise RuntimeError("Cannot use both --overwrite and --merge")
@@ -51,6 +58,11 @@ def pull(name: str, project_id: str, overwrite: bool, merge: bool, dry_run: bool
 
     # Pull config from server
     data_server_client = container.data_server_client
+    if data_server_client is None:
+        raise RuntimeError(
+            "Data server is not configured for the active profile. "
+            "Use `lean cloud config set <name> --url <url> --bearer <token>`."
+        )
     logger.info(f"Pulling config '{name}' from data server...")
 
     result = data_server_client.pull_config(name=name, project_id=project_id)
