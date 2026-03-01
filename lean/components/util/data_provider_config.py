@@ -47,12 +47,13 @@ def get_cascade_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
     """
     if provider_name == "ThetaData":
         return {
-            "data-provider": "QuantConnect.Lean.Engine.DataFeeds.DownloaderDataProvider",
+            "data-provider": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataDataProvider",
             "data-downloader": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataDownloader",
             "history-provider": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataProvider",
-            # ThetaData returns unadjusted prices — use Polygon for split/dividend factors and ticker mappings
+            # ThetaData returns unadjusted prices — use Polygon for split/dividend factors, ticker mappings, and universe
             "map-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonMapFileProvider",
             "factor-file-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonFactorFileProvider",
+            "fundamental-data-provider": "QuantConnect.Lean.DataSource.Polygon.PolygonUniverseDataProvider",
             "option-chain-provider": "QuantConnect.Lean.DataSource.ThetaData.ThetaDataOptionChainProvider",
         }
     elif provider_name == "KalshiData":

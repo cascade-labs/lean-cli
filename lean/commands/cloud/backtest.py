@@ -11,14 +11,186 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import time
-from typing import List, Optional, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Any, List, Optional, Tuple
 
 from click import command, argument, option
 
 from lean.click import LeanCommand, backtest_parameter_option
 from lean.container import container
 from lean.components.util.data_provider_config import normalize_data_provider_historical, get_cascade_provider_config
+
+
+def _format_logs(logs: Any) -> str:
+    """Converts the logs API response to a plain string."""
+    if logs is None:
+        return ""
+    if isinstance(logs, str):
+        return logs
+    if isinstance(logs, list):
+        return "\n".join(str(line) for line in logs)
+    if isinstance(logs, dict):
+        content = logs.get("logs") or logs.get("content") or logs.get("data")
+        if content is not None:
+            return _format_logs(content)
+        return json.dumps(logs, indent=4)
+    return str(logs)
+
+
+def _save_backtest_results_locally(project_path: Path, backtest: dict, results: Any, logs: Any) -> Path:
+    """Saves cloud backtest results to a local directory mimicking local backtest output.
+
+    Creates:
+        PROJECT/backtests/TIMESTAMP/{backtest_id}.json  - full results
+        PROJECT/backtests/TIMESTAMP/logs.txt            - algorithm logs
+        PROJECT/backtests/TIMESTAMP/config              - backtest metadata
+
+    :param project_path: path to the local project directory
+    :param backtest: backtest metadata dict from the API
+    :param results: results JSON from the API
+    :param logs: logs from the API
+    :return: the path to the created backtest directory
+    """
+    logger = container.logger
+
+    backtest_id = backtest.get("id", "unknown")
+    backtest_name = backtest.get("name", "unnamed")
+    completed_at = backtest.get("completed_at", "")
+
+    # Use completion time for the directory name so it matches the actual run time
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if completed_at:
+        try:
+            dt = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+            timestamp = dt.astimezone().strftime("%Y-%m-%d_%H-%M-%S")
+        except Exception:
+            pass
+
+    output_dir = project_path / "backtests" / timestamp
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Results JSON – named by backtest ID to match local engine convention
+    results_file = output_dir / f"{backtest_id}.json"
+    results_file.write_text(json.dumps(results, indent=4) if results else "{}")
+
+    # Logs
+    logs_file = output_dir / "logs.txt"
+    logs_file.write_text(_format_logs(logs))
+
+    # Metadata config file (read by _list_local_backtests)
+    config_data = {
+        "id": backtest_id,
+        "backtest-name": backtest_name,
+        "created_at": backtest.get("created_at", ""),
+        "completed_at": completed_at,
+        "status": backtest.get("status", ""),
+    }
+    (output_dir / "config").write_text(json.dumps(config_data, indent=4))
+
+    logger.info(f"Results saved to: {output_dir}")
+    return output_dir
+
+
+def _resolve_project_path(project_name: str) -> Path:
+    """Resolves a project name to a local directory path.
+
+    Looks for an existing directory with the project name relative to cwd,
+    falling back to creating one there.
+    """
+    candidate = Path.cwd() / project_name
+    return candidate
+
+
+def _display_backtest_statistics(backtest: dict, results: Any) -> None:
+    """Prints a summary of key backtest statistics."""
+    logger = container.logger
+
+    # Try results JSON first for full statistics
+    stats = {}
+    if isinstance(results, dict):
+        stats = results.get("Statistics", {})
+
+    # Fall back to whatever the API stores in backtest.result
+    if not stats and isinstance(backtest.get("result"), dict):
+        stats = backtest["result"]
+
+    if stats:
+        logger.info("")
+        logger.info("Statistics:")
+        for key, value in stats.items():
+            logger.info(f"  {key}: {value}")
+
+
+def _pull_cascade_backtest_results(backtest_id_or_name: str, project_override: Optional[str]) -> None:
+    """Pulls results for a completed cloud backtest and saves them locally.
+
+    :param backtest_id_or_name: the backtest UUID or name
+    :param project_override: optional local project directory to save results into
+    """
+    logger = container.logger
+    data_server_client = container.data_server_client
+
+    # Look up the backtest
+    backtest = None
+    try:
+        backtest = data_server_client.get_backtest(backtest_id_or_name)
+    except Exception:
+        pass
+
+    if backtest is None:
+        # Try by name
+        backtest = data_server_client.get_backtest_by_name(backtest_id_or_name)
+        if backtest is None:
+            raise RuntimeError(f'No backtest with the given id or name "{backtest_id_or_name}" found.')
+
+    backtest_id = backtest["id"]
+    status = backtest.get("status", "")
+    name = backtest.get("name", "unnamed")
+
+    logger.info(f"Found backtest '{name}' (id: {backtest_id}, status: {status})")
+
+    if status != "completed":
+        raise RuntimeError(f"Backtest is not completed (status: {status}). Only completed backtests can be pulled.")
+
+    # Resolve local project path
+    if project_override:
+        project_path = _resolve_project_path(project_override)
+    else:
+        # Look up project name from the data server
+        project_id = backtest.get("project_id", "")
+        project_name = None
+        if project_id:
+            try:
+                ds_project = data_server_client.get_project(project_id)
+                project_name = ds_project.name
+            except Exception:
+                pass
+        project_path = _resolve_project_path(project_name or "cloud_backtests")
+
+    # Download results and logs
+    logger.info("Downloading results...")
+    results = None
+    try:
+        results = data_server_client.get_backtest_results(backtest_id)
+    except Exception as e:
+        logger.warn(f"Could not download results: {e}")
+
+    logger.info("Downloading logs...")
+    logs = None
+    try:
+        logs = data_server_client.get_backtest_logs(backtest_id)
+    except Exception as e:
+        logger.warn(f"Could not download logs: {e}")
+
+    output_dir = _save_backtest_results_locally(project_path, backtest, results, logs)
+
+    _display_backtest_statistics(backtest, results)
+
+    logger.info("")
+    logger.info(f"Backtest results saved to: {output_dir}")
 
 
 def _list_cascade_backtests(project: Optional[str], status: Optional[str]) -> None:
@@ -29,8 +201,6 @@ def _list_cascade_backtests(project: Optional[str], status: Optional[str]) -> No
     """
     logger = container.logger
     data_server_client = container.data_server_client
-    cli_config_manager = container.cli_config_manager
-    data_server_url = cli_config_manager.data_server_url.get_value()
 
     project_id = None
     if project:
@@ -53,13 +223,28 @@ def _list_cascade_backtests(project: Optional[str], status: Optional[str]) -> No
         logger.info("No backtests found.")
         return
 
+    # Build a project_id -> name map to avoid N individual API calls
+    project_name_cache: dict = {}
+    if project_id and project:
+        # We already know the name for this project
+        project_name_cache[project_id] = project
+    else:
+        try:
+            all_projects = data_server_client.list_projects()
+            for p in all_projects:
+                project_name_cache[p.id] = p.name
+        except Exception:
+            pass
+
     logger.info(f"Found {len(backtests)} backtest(s):\n")
 
     for bt in backtests:
         status_str = bt.get("status", "unknown")
         name = bt.get("name", "unnamed")
         bt_id = bt.get("id", "")
+        bt_project_id = bt.get("project_id", "")
         created = bt.get("created_at", "")[:19] if bt.get("created_at") else ""
+        project_display = project_name_cache.get(bt_project_id, bt_project_id or "unknown")
 
         # Format status with color hint
         if status_str == "completed":
@@ -77,13 +262,12 @@ def _list_cascade_backtests(project: Optional[str], status: Optional[str]) -> No
 
         logger.info(f"  {name}")
         logger.info(f"    ID: {bt_id}")
+        logger.info(f"    Project: {project_display}")
         logger.info(f"    Status: {status_display}")
         logger.info(f"    Created: {created}")
 
-        # Show report URL for completed backtests
         if status_str == "completed" and bt_id:
-            report_url = f"{data_server_url}/api/v1/backtests/{bt_id}/report"
-            logger.info(f"    Report: {report_url}")
+            logger.info(f"    Pull results: lean cloud backtest --pull {bt_id}")
 
         if status_str == "failed" and bt.get("error"):
             error_preview = bt["error"][:100] + "..." if len(bt.get("error", "")) > 100 else bt.get("error", "")
@@ -114,8 +298,6 @@ def _run_cascade_backtest(
     :param end_date: optional end date
     :param initial_capital: initial capital
     """
-    from pathlib import Path
-
     logger = container.logger
     data_server_client = container.data_server_client
     data_server_push_manager = container.data_server_push_manager
@@ -193,12 +375,27 @@ def _run_cascade_backtest(
     logger.info(f"Backtest {status}")
 
     if status == "completed":
-        result = backtest.get("result", {})
-        if result:
-            logger.info("")
-            logger.info("Statistics:")
-            for key, value in result.items():
-                logger.info(f"  {key}: {value}")
+        # Download and save results locally
+        results = None
+        logs = None
+
+        logger.info("Downloading results...")
+        try:
+            results = data_server_client.get_backtest_results(backtest_id)
+        except Exception as e:
+            logger.warn(f"Could not download results: {e}")
+
+        logger.info("Downloading logs...")
+        try:
+            logs = data_server_client.get_backtest_logs(backtest_id)
+        except Exception as e:
+            logger.warn(f"Could not download logs: {e}")
+
+        project_path = _resolve_project_path(data_server_project.name)
+        output_dir = _save_backtest_results_locally(project_path, backtest, results, logs)
+        _display_backtest_statistics(backtest, results)
+        logger.info("")
+        logger.info(f"Results saved to: {output_dir}")
 
     elif status == "failed":
         error = backtest.get("error", "Unknown error")
@@ -218,6 +415,11 @@ def _run_cascade_backtest(
 @option("--status",
               type=str,
               help="Filter by status when listing (pending, running, completed, failed, cancelled)")
+@option("--pull",
+              type=str,
+              default=None,
+              metavar="BACKTEST_ID",
+              help="Pull results of a completed backtest by ID or name and save them locally")
 @option("--name", type=str, help="The name of the backtest (a random one is generated if not specified)")
 @option("--push",
               is_flag=True,
@@ -230,7 +432,7 @@ def _run_cascade_backtest(
 @option("--wait",
               is_flag=True,
               default=False,
-              help="Wait for the backtest to complete")
+              help="Wait for the backtest to complete and save results locally")
 @option("--start-date",
               type=str,
               help="Backtest start date (format: YYYY-MM-DD)")
@@ -250,6 +452,7 @@ def backtest(
     project: Optional[str],
     list_backtests: bool,
     status: Optional[str],
+    pull: Optional[str],
     name: Optional[str],
     push: bool,
     open_browser: bool,
@@ -270,12 +473,12 @@ def backtest(
 
     When using the Cascade data server (configured via `lean login`), backtests
     are queued for processing by the lean_worker service. Use --wait to wait
-    for completion.
+    for completion and automatically save results locally.
+
+    Use --pull BACKTEST_ID to download results of an already-completed backtest.
 
     Use --list to see existing backtests (optionally filter by project and status).
     """
-    from pathlib import Path
-
     logger = container.logger
 
     # Handle --list mode
@@ -283,6 +486,13 @@ def backtest(
         if container.data_server_client is None:
             raise RuntimeError("--list is only supported with Cascade data server. Configure with `lean login`.")
         _list_cascade_backtests(project, status)
+        return
+
+    # Handle --pull mode: download results for an existing completed backtest
+    if pull is not None:
+        if container.data_server_client is None:
+            raise RuntimeError("--pull is only supported with Cascade data server. Configure with `lean login`.")
+        _pull_cascade_backtest_results(pull, project)
         return
 
     # For running a backtest, project is required

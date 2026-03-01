@@ -394,6 +394,14 @@ class DataServerClient:
         """
         return self._backtest_request("get", f"/{backtest_id}/results")
 
+    def get_backtest_logs(self, backtest_id: str) -> Any:
+        """Gets the logs for a backtest.
+
+        :param backtest_id: the backtest UUID
+        :return: the backtest logs
+        """
+        return self._backtest_request("get", f"/{backtest_id}/logs")
+
     def get_backtest_insights(self, backtest_id: str) -> List[Dict[str, Any]]:
         """Gets the alpha insights for a backtest.
 

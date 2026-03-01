@@ -560,6 +560,12 @@ def backtest(project: Optional[Path],
     cascade_config = get_cascade_provider_config(data_provider_historical)
     if cascade_config is not None:
         lean_config.update(cascade_config)
+        # Propagate provider keys into the active environment section so LEAN's
+        # in-engine environment override does not revert them to lean.json defaults.
+        env_name = lean_config.get("environment", "backtesting")
+        if "environments" in lean_config and env_name in lean_config["environments"]:
+            for key, value in cascade_config.items():
+                lean_config["environments"][env_name][key] = value
         # Inject provider-specific credentials for local Docker runs
         if data_provider_historical == "Hyperliquid":
             hl_aws_key = cli_config_manager.hyperliquid_aws_access_key_id.get_value()
