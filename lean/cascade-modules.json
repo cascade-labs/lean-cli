@@ -81,6 +81,65 @@
                 "data-downloader",
                 "history-provider"
             ]
+        },
+        {
+            "configurations": [
+                {
+                    "help": "Your Fidelity username",
+                    "id": "fidelity-user-name",
+                    "input-method": "prompt",
+                    "prompt-info": "Fidelity username",
+                    "type": "input"
+                },
+                {
+                    "help": "Your Fidelity password",
+                    "id": "fidelity-password",
+                    "input-method": "prompt-password",
+                    "prompt-info": "Fidelity password",
+                    "type": "input"
+                },
+                {
+                    "help": "Your Fidelity TOTP secret for authenticator-based 2FA",
+                    "id": "fidelity-totp-secret",
+                    "input-default": "",
+                    "input-method": "prompt-password",
+                    "optional": true,
+                    "prompt-info": "Fidelity TOTP secret",
+                    "type": "input"
+                },
+                {
+                    "help": "Your Fidelity account number to trade in",
+                    "id": "fidelity-account",
+                    "input-method": "prompt",
+                    "prompt-info": "Fidelity account number",
+                    "type": "input"
+                },
+                {
+                    "filters": [
+                        {
+                            "condition": {
+                                "dependent-config-id": "type",
+                                "pattern": "brokerage",
+                                "type": "exact-match"
+                            }
+                        }
+                    ],
+                    "id": "live-mode-brokerage",
+                    "type": "info",
+                    "value": "FidelityBrokerage"
+                }
+            ],
+            "display-id": "Fidelity",
+            "id": "FidelityBrokerage",
+            "installs": false,
+            "live-cash-balance-state": "not-supported",
+            "live-holdings-state": "not-supported",
+            "platform": [
+                "cli"
+            ],
+            "type": [
+                "brokerage"
+            ]
         }
     ]
 }

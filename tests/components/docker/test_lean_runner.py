@@ -11,6 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -165,6 +166,81 @@ def test_run_lean_runs_lean_container() -> None:
 
     assert args[0] == ENGINE_IMAGE
     assert any(cmd for cmd in kwargs["commands"] if cmd.endswith("dotnet QuantConnect.Lean.Launcher.dll"))
+
+
+def test_run_lean_passes_fidelity_sidecar_environment_variables() -> None:
+    create_fake_lean_cli_directory()
+
+    docker_manager = mock.Mock()
+    docker_manager.run_image.return_value = True
+    docker_manager.get_image_label.return_value = DEFAULT_LEAN_DOTNET_FRAMEWORK
+
+    lean_runner = create_lean_runner(docker_manager)
+
+    lean_config = {
+        "environment": "live-fidelity",
+        "environments": {
+            "live-fidelity": {
+                "live-mode-brokerage": "FidelityBrokerage",
+                "fidelity-user-name": "trader777",
+                "fidelity-password": "hunter2",
+                "fidelity-totp-secret": "totp-secret",
+                "fidelity-account": "Z12345678",
+                "fidelity-sidecar-url": "http://127.0.0.1:5198",
+            }
+        }
+    }
+
+    lean_runner.run_lean(lean_config,
+                         "live-fidelity",
+                         Path.cwd() / "CSharp Project" / "Main.cs",
+                         Path.cwd() / "output",
+                         ENGINE_IMAGE,
+                         None,
+                         False,
+                         False)
+
+    docker_manager.run_image.assert_called_once()
+    _, kwargs = docker_manager.run_image.call_args
+
+    assert kwargs["environment"]["FIDELITY_USERNAME"] == "trader777"
+    assert kwargs["environment"]["FIDELITY_PASSWORD"] == "hunter2"
+    assert kwargs["environment"]["FIDELITY_TOTP_SECRET"] == "totp-secret"
+    assert kwargs["environment"]["FIDELITY_ACCOUNT"] == "Z12345678"
+    assert kwargs["environment"]["FIDELITY_SIDECAR_PORT"] == "5198"
+    assert any("lean_entrypoint.py" in cmd for cmd in kwargs["commands"])
+
+
+def test_run_lean_does_not_mount_placeholder_auth_credentials() -> None:
+    create_fake_lean_cli_directory()
+
+    docker_manager = mock.Mock()
+    docker_manager.run_image.return_value = True
+    docker_manager.get_image_label.return_value = DEFAULT_LEAN_DOTNET_FRAMEWORK
+
+    lean_runner = create_lean_runner(docker_manager)
+
+    lean_runner.run_lean({
+                            "job-user-id": "0",
+                            "api-access-token": "",
+                         },
+                         "backtesting",
+                         Path.cwd() / "CSharp Project" / "Main.cs",
+                         Path.cwd() / "output",
+                         ENGINE_IMAGE,
+                         None,
+                         False,
+                         False)
+
+    docker_manager.run_image.assert_called_once()
+    _, kwargs = docker_manager.run_image.call_args
+
+    config_mount = next(m["Source"] for m in kwargs["mounts"] if m["Target"] == f"{LEAN_ROOT_PATH}/config.json")
+    with open(config_mount, "r", encoding="utf-8") as file:
+        config = json.load(file)
+
+    assert "job-user-id" not in config
+    assert "api-access-token" not in config
 
 
 def test_run_lean_mounts_config_file() -> None:

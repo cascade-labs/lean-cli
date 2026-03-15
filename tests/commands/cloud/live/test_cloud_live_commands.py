@@ -21,10 +21,10 @@ from lean.container import container
 from lean.models.api import QCEmailNotificationMethod, QCWebhookNotificationMethod, QCSMSNotificationMethod, \
     QCTelegramNotificationMethod, QCAuth0Authorization
 from tests.test_helpers import create_fake_lean_cli_directory, create_qc_nodes
-from tests.commands.test_live import brokerage_required_options
+from tests.commands.test_live import brokerage_required_options as local_brokerage_required_options
 
 brokerage_required_options = {
-    **brokerage_required_options,
+    **{name: value for name, value in local_brokerage_required_options.items() if name != "Fidelity"},
     "Trading Technologies": {
         "organization": "abc",
         "tt-user-name": "abc",

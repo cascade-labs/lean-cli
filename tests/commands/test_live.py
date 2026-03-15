@@ -361,6 +361,11 @@ terminal_link_required_options = {
 
 brokerage_required_options = {
     "Paper Trading": {},
+    "Fidelity": {
+        "fidelity-user-name": "trader777",
+        "fidelity-password": "hunter2",
+        "fidelity-account": "Z12345678"
+    },
     "Interactive Brokers": {
         "ib-user-name": "trader777",
         "ib-account": "DU1234567",
@@ -1193,6 +1198,12 @@ def test_live_non_interactive_deploy_fails_when_given_is_invalid(output_name: st
 
     assert result.output == f"Usage: lean live deploy [OPTIONS] PROJECT\nTry 'lean live deploy --help' for help.\n\nError: Invalid value for '--output': Directory '{output_name}' is not a valid path.\n"
 
+def test_live_deploy_help_lists_fidelity_brokerage() -> None:
+    result = CliRunner().invoke(lean, ["live", "deploy", "--help"])
+
+    assert result.exit_code == 0
+    assert "Fidelity" in result.output
+
 def test_live_non_interactive_deploy_with_real_brokerage_without_credentials() -> None:
     create_fake_lean_cli_directory()
     create_fake_environment("live-paper", True)
@@ -1216,6 +1227,42 @@ def test_live_non_interactive_deploy_with_real_brokerage_without_credentials() -
     assert "--oanda-account-id" in error_msg
     assert "--oanda-access-token" in error_msg
     assert "--oanda-environment" in error_msg
+
+
+def test_live_non_interactive_deploy_skips_module_install_for_custom_engine_image() -> None:
+    api_client = mock.MagicMock()
+    create_fake_lean_cli_directory()
+    create_fake_environment("live-paper", True)
+    initialize_container(api_client_to_use=api_client)
+    container.cli_config_manager.engine_image.set_value("lean-cli/engine:cascadelabs-lean")
+
+    result = CliRunner().invoke(lean, ["live", "deploy",
+                                       "--brokerage", "Fidelity",
+                                       "--fidelity-user-name", "trader777",
+                                       "--fidelity-password", "hunter2",
+                                       "--fidelity-account", "Z12345678",
+                                       "--data-provider-live", "Polygon",
+                                       "--polygon-api-key", "123",
+                                       "Python Project"])
+
+    assert result.exit_code == 0
+    filtered_calls = [call for call in api_client.method_calls if call[0] == 'modules.list_files']
+    assert filtered_calls == []
+
+
+def test_live_non_interactive_deploy_defaults_thetadata_plan_for_custom_engine_image() -> None:
+    api_client = mock.MagicMock()
+    create_fake_lean_cli_directory()
+    create_fake_environment("live-paper", True)
+    initialize_container(api_client_to_use=api_client)
+    container.cli_config_manager.engine_image.set_value("lean-cli/engine:cascadelabs-lean")
+
+    result = CliRunner().invoke(lean, ["live", "deploy",
+                                       "--brokerage", "Paper Trading",
+                                       "--data-provider-live", "ThetaData",
+                                       "Python Project"])
+
+    assert "--thetadata-subscription-plan" not in str(result.exc_info[1])
 
 
 def create_lean_option(brokerage_name: str, data_provider_live_name: str, data_provider_historical_name: str,

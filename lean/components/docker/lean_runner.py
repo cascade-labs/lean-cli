@@ -13,6 +13,7 @@
 
 from pathlib import Path
 from typing import Any, Dict, Optional, List
+from urllib.parse import urlparse
 
 from lean.components.cloud.module_manager import ModuleManager
 from lean.components.config.lean_config_manager import LeanConfigManager
@@ -137,7 +138,9 @@ class LeanRunner:
         if debugging_method == DebuggingMethod.LocalPlatform:
             run_options["ports"]["5678"] = "0" # Using port 0 will assign a random port every time
 
-        run_options["commands"].append("exec dotnet QuantConnect.Lean.Launcher.dll")
+        run_options["commands"].append(
+            "exec python /Lean/Launcher/bin/Debug/lean_entrypoint.py dotnet QuantConnect.Lean.Launcher.dll"
+        )
 
         # Copy the project's code to the output directory
         self._project_manager.copy_code(algorithm_file.parent, output_dir / "code")
@@ -240,6 +243,8 @@ class LeanRunner:
                                                  set_up_common_csharp_options_called, release,
                                                  image)
 
+        self._populate_fidelity_environment(run_options, lean_config)
+
         self._mount_lean_config_and_finalize(run_options, lean_config, output_dir)
 
         return run_options
@@ -297,6 +302,8 @@ class LeanRunner:
         # Set up modules
         self._setup_installed_packages(run_options, image, lean_config, target_path)
 
+        self._populate_fidelity_environment(run_options, lean_config)
+
         self._mount_lean_config_and_finalize(run_options, lean_config, None, config_local_path)
 
         return run_options
@@ -308,6 +315,8 @@ class LeanRunner:
         from uuid import uuid4
         from json import dumps
         from os import makedirs
+
+        lean_config = self._prune_placeholder_auth_config(dict(lean_config))
 
         # Save the final Lean config to a temporary file so we can mount it into the container
         if not config_local_path:
@@ -339,6 +348,16 @@ class LeanRunner:
                 environment = lean_config["environments"][lean_config["environment"]]
                 if "live-mode-brokerage" in environment:
                     output_config.set("brokerage", environment["live-mode-brokerage"].split(".")[-1])
+
+    @staticmethod
+    def _prune_placeholder_auth_config(lean_config: Dict[str, Any]) -> Dict[str, Any]:
+        if str(lean_config.get("job-user-id", "")) == "0":
+            lean_config.pop("job-user-id", None)
+
+        if lean_config.get("api-access-token", "") == "":
+            lean_config.pop("api-access-token", None)
+
+        return lean_config
 
     def _setup_installed_packages(self, run_options: Dict[str, Any], image: DockerImage,
                                   lean_config: Dict[str, Any], target_path: str = "/Lean/Launcher/bin/Debug"):
@@ -449,6 +468,43 @@ class LeanRunner:
             "volumes": {},
             "ports": docker_project_config.get("ports", {})
         }
+
+    @staticmethod
+    def _get_active_environment_config(lean_config: Dict[str, Any]) -> Dict[str, Any]:
+        if "environment" in lean_config and "environments" in lean_config:
+            environment_name = lean_config["environment"]
+            environment = lean_config["environments"].get(environment_name, {})
+            if isinstance(environment, dict):
+                return environment
+        return lean_config
+
+    def _populate_fidelity_environment(self, run_options: Dict[str, Any], lean_config: Dict[str, Any]) -> None:
+        environment_config = self._get_active_environment_config(lean_config)
+        brokerage = str(environment_config.get("live-mode-brokerage", lean_config.get("live-mode-brokerage", "")))
+        if brokerage.split(".")[-1] != "FidelityBrokerage":
+            return
+
+        container_environment = run_options.setdefault("environment", {})
+        config_to_env = {
+            "fidelity-user-name": "FIDELITY_USERNAME",
+            "fidelity-password": "FIDELITY_PASSWORD",
+            "fidelity-totp-secret": "FIDELITY_TOTP_SECRET",
+            "fidelity-account": "FIDELITY_ACCOUNT",
+        }
+
+        for config_key, env_key in config_to_env.items():
+            value = environment_config.get(config_key, lean_config.get(config_key, ""))
+            if value not in (None, ""):
+                container_environment[env_key] = str(value)
+
+        sidecar_url = str(
+            environment_config.get(
+                "fidelity-sidecar-url",
+                lean_config.get("fidelity-sidecar-url", "http://127.0.0.1:5198"),
+            )
+        )
+        parsed = urlparse(sidecar_url if "://" in sidecar_url else f"http://{sidecar_url}")
+        container_environment["FIDELITY_SIDECAR_PORT"] = str(parsed.port or 5198)
 
     def _ensure_directories_exist(self, dirs: List[Path]):
         """Ensures directories exist."""

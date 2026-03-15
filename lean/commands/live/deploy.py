@@ -54,6 +54,44 @@ def _get_history_provider_name(data_provider_live_names: [str]) -> [str]:
     return history_providers
 
 
+def _get_config_value(lean_config: dict, environment_name: str, key: str):
+    if (
+        environment_name
+        and "environments" in lean_config
+        and environment_name in lean_config["environments"]
+        and key in lean_config["environments"][environment_name]
+    ):
+        return lean_config["environments"][environment_name][key]
+    return lean_config.get(key)
+
+
+def _apply_local_provider_defaults(lean_config: dict,
+                                   environment_name: str,
+                                   data_provider_live,
+                                   data_provider_historical,
+                                   kwargs: dict) -> None:
+    if isinstance(data_provider_live, str):
+        live_iterable = [data_provider_live]
+    else:
+        live_iterable = list(data_provider_live) if data_provider_live else []
+
+    live_names = [str(name).lower() for name in live_iterable]
+    historical_name = str(data_provider_historical).lower() if data_provider_historical else None
+    uses_thetadata = "thetadata" in live_names or historical_name == "thetadata"
+    if not uses_thetadata:
+        return
+
+    if "thetadata_subscription_plan" in kwargs:
+        return
+
+    if _get_config_value(lean_config, environment_name, "thetadata-subscription-plan"):
+        return
+
+    lean_config["thetadata-subscription-plan"] = "Standard"
+    if environment_name and "environments" in lean_config and environment_name in lean_config["environments"]:
+        lean_config["environments"][environment_name]["thetadata-subscription-plan"] = "Standard"
+
+
 @live.command(cls=LeanCommand, requires_lean_config=True, requires_docker=True, default_command=True, name="deploy")
 @argument("project", type=PathParameter(exists=True, file_okay=True, dir_okay=True))
 @option("--environment",
@@ -211,6 +249,8 @@ def deploy(project: Path,
         lean_config = lean_config_manager.get_complete_lean_config(environment_name, algorithm_file, None)
         lean_config["environments"] = {environment_name: copy(_environment_skeleton)}
 
+    _apply_local_provider_defaults(lean_config, environment_name, data_provider_live, data_provider_historical, kwargs)
+
     if brokerage:
         # user provided brokerage, check all arguments were provided
         brokerage_instance = non_interactive_config_build_for_name(lean_config, brokerage, cli_brokerages, kwargs,
@@ -265,8 +305,10 @@ def deploy(project: Path,
     modules_to_check = data_provider_live_instances + [brokerage_instance] + history_providers_instances
     if data_downloader_instances is not None:
         modules_to_check.append(data_downloader_instances)
+    should_install_modules = str(engine_image) == DEFAULT_ENGINE_IMAGE
     for module in modules_to_check:
-        module.ensure_module_installed(organization_id, container_module_version)
+        if should_install_modules:
+            module.ensure_module_installed(organization_id, container_module_version)
         paths_to_mount.update(module.get_paths_to_mount())
 
     if not lean_config["environments"][environment_name]["live-mode"]:

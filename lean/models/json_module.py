@@ -109,11 +109,13 @@ class JsonModule(ABC):
             value = self._lean_configs[i]._value
             if isinstance(value, str):
                 value = value.lower()
+                if searched_value in value:
+                    return True
+                continue
             if isinstance(value, list):
                 value = [x.lower() for x in value]
-
-            if searched_value in value:
-                return True
+                if searched_value in value:
+                    return True
         return False
 
     def get_settings(self) -> Dict[str, str]:
